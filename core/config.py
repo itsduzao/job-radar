@@ -4,195 +4,134 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Cargo forte: título que só existe mesmo em vaga de dados/BI, sem
-# possibilidade real de ser outra área.
+# Cargo forte: título que já deixa claro que a vaga é de estágio em
+# desenvolvimento de software (fullstack, front-end, back-end ou engenharia
+# de software). Esses termos aprovam pelo título sem exigir outro
+# qualificador, porque o próprio cargo já traz o recorte de estágio.
 KEYWORDS_CARGO_FORTE = [
-    "Analista de Dados",
-    "Analista BI",
-    "Analista de BI",
-    "Business Intelligence",
-    "Data Analytics",
-    "Analista de Analytics",
-    "Data Analyst",
-    "Desenvolvedor BI",
-    "Consultor BI",
-    "Analista de Inteligência de Negócios",
-    "BI Developer",
-    "BI Analyst",
-    "Analista de Reporting",
-    "Analista de Inteligência de Mercado",
-    "Analista de Indicadores",
-    "Reporting Analyst",
-    "Insights Analyst",
-    "Data Insights Analyst",
-    "MIS Analyst",
-    "Analista de MIS",
-    "Assistente de BI",
-    "Auxiliar de BI",
-    "Analista de Inteligência Comercial",
-    "Data Specialist",
-    "Data Quality Analyst",
-    "Data Intelligence Analyst",
-    "BI & Analytics Analyst",
-    "Analytics Specialist",
-    "Especialista em Dados",
-    "Analista de Planejamento e Dados",
-    # "Datos" (espanhol) não é "Dados" (português) — nenhuma keyword em
-    # português cobre título em espanhol, mesmo sendo a mesma vaga. Faz
-    # sentido aqui no pipeline BR (não só em config_intl.py) porque
-    # LinkedInScraper já busca em Argentina/Chile (ver LOCATIONS_LINKEDIN).
-    "Analista de Datos",
-    "Analítica de Datos",
+    "Estágio em Desenvolvimento",
+    "Estágio Fullstack",
+    "Estágio Full Stack",
+    "Estágio Front-end",
+    "Estágio Back-end",
+    "Estagiário de TI",
+    "Estagiário de Tecnologia",
+    "Estágio em Engenharia de Software",
+    "Estágio em Programação",
+    "Software Engineering Intern",
+    "Development Intern",
 ]
 
-# Cargo ambíguo: título que também é usado em vaga sem nada a ver com
-# dados/BI (ex: "Business Analyst" e "Analista de Negócios" existem em
-# TI, finanças, RH, operações... qualquer área). Só conta como match se o
-# título TAMBÉM tiver um QUALIFICADORES_DADOS junto — é o que permite ir
-# adicionando cargo adjacente (Product Analyst, CRM Analyst, Marketing
-# Analyst etc.) sem cada um virar fonte de ruído sozinho.
+# Cargo ambíguo: títulos gerais de desenvolvimento também aparecem em vagas
+# efetivas/plenas/sêniores. Só contam como match quando o título TAMBÉM traz
+# um qualificador explícito de estágio/internship.
 KEYWORDS_CARGO_AMBIGUO = [
-    "Business Analyst",
-    "Analista de Negócios",
-    "Business Analytics",
-    "Analista de Performance",
+    "Desenvolvedor",
+    "Programador",
+    "Engenheiro de Software",
+    "Software Engineer",
+    "Web Developer",
 ]
 
-# Termo que precisa aparecer junto no título quando o cargo é ambíguo, pra
-# confirmar que é vaga de dados/BI e não de outra área qualquer.
-QUALIFICADORES_DADOS = [
-    "dados",
-    "data",
-    "bi",
-    "sql",
-    "power bi",
-    "analytics",
-    "kpi",
-    "dashboard",
-    "métricas",
-    "reporting",
-    "insights",
+# Termo que precisa aparecer junto no título quando o cargo é ambíguo, para
+# confirmar que é uma oportunidade de estágio e não uma vaga efetiva. O nome
+# novo reflete o domínio atual (tecnologia/software); o alias antigo fica só
+# para manter compatibilidade com RegrasFiltro/perfis.py, que ainda usa o
+# campo genérico `qualificadores_dados`.
+QUALIFICADORES_TECH = [
+    "estágio",
+    "estagiário",
+    "intern",
+    "internship",
 ]
+QUALIFICADORES_DADOS = QUALIFICADORES_TECH
 
-# Ferramenta que aparece como núcleo do título ("Analista de Power BI").
-# Só conta como match se o título TAMBÉM tiver uma palavra de cargo — é o
-# espelho da regra de KEYWORDS_CARGO_AMBIGUO: lá o cargo é ambíguo e pede
-# domínio, aqui a ferramenta é ambígua e pede cargo. Sem isso, "Power BI"
-# sozinho aprovaria "Power BI Senior" e "Desenvolvedor (Power BI + Python)",
-# que são vaga de desenvolvimento, não de análise.
+# Stack principal que pode aparecer como núcleo do título (ex: "Estágio
+# React", "Intern Node.js"). Só conta como match se o título também tiver
+# uma palavra de estágio em QUALIFICADORES_CARGO, evitando aprovar vagas
+# efetivas apenas por citarem uma tecnologia.
 FERRAMENTAS_TITULO = [
-    "Power BI",
+    "javascript",
+    "typescript",
+    "node",
+    "react",
+    "nextjs",
+    "java",
+    "docker",
+    "gcp",
+    "google cloud",
+    "python",
+    "sql",
+    "tailwind",
 ]
 
-# Palavra de cargo que confirma que a vaga de ferramenta é de análise.
-# "desenvolvedor"/"developer"/"engenheiro" ficam FORA de propósito: é o que
-# mantém vaga de dev fora do radar.
+# Palavra de cargo/nível que confirma que uma vaga encontrada por tecnologia
+# é realmente estágio.
 QUALIFICADORES_CARGO = [
-    "analista",
-    "analyst",
-    "especialista",
-    "specialist",
-    "consultor",
-    "consultant",
+    "estágio",
+    "estagiário",
+    "intern",
+    "internship",
 ]
 
 KEYWORDS = KEYWORDS_CARGO_FORTE + KEYWORDS_CARGO_AMBIGUO
 
 # Termos de busca enviados a cada site. Ficam separados das KEYWORDS de
 # propósito: TERMOS_BUSCA é a rede ampla (o que é pesquisado em cada site,
-# incluindo termos de ferramenta/stack pra achar vaga com título atípico),
-# enquanto KEYWORDS é o filtro final e só olha o título da vaga já
-# encontrada. Um termo de ferramenta (ex: "dax") só resulta em notificação
-# se o TÍTULO da vaga também bater com uma keyword de cargo — isso evita
-# falso positivo de vaga que só cita a ferramenta como diferencial.
-#
-# TERMOS_CARGO é derivado direto de KEYWORDS (em vez de mantido à mão em
-# lista separada) — antes as duas listas divergiam: metade das KEYWORDS
-# (ex: "Desenvolvedor BI", "BI Analyst", "Analista de Negócios") nunca era
-# buscada de verdade, só existia como filtro, então só pegava essas vagas
-# por sorte via outro termo. Com a derivação automática isso não pode mais
-# acontecer — toda keyword nova em KEYWORDS já vira busca também.
+# incluindo termos de stack para achar vaga com título atípico), enquanto
+# KEYWORDS é o filtro final de cargo. Um termo de tecnologia só resulta em
+# notificação se o TÍTULO da vaga também tiver sinal de estágio/cargo pela
+# regra de RegrasFiltro.
 TERMOS_CARGO_EXTRA = [
-    # termos mais amplos que a keyword exata, mantidos por dar rede mais
-    # larga na busca (a keyword em si é mais restrita, de propósito, pra
-    # não gerar falso positivo no filtro de título).
-    "power bi",
-    "inteligência de mercado",
+    # Variações amplas comuns em anúncios que nem sempre repetem exatamente
+    # as keywords fortes acima.
+    "estágio desenvolvimento software",
+    "estágio desenvolvedor",
+    "estágio programação",
+    "estágio ti",
+    "intern software",
 ]
 
 TERMOS_CARGO = sorted(set(k.lower() for k in KEYWORDS) | set(TERMOS_CARGO_EXTRA))
 
-# MEDIDO em jobradar.log (12 rodízios completos, Gupy+99Jobs+GeekHunter+
-# Solides): "dax" e "power query" nunca resultaram em nenhuma vaga nova
-# notificada nessas 4 fontes — 0 em 48 buscas cada, a maioria vazia
-# ("0 resultados reais") e o resto timeout. "microsoft fabric" teve 1 vaga
-# no log inteiro (363 notificações) com o termo no título, e essa vaga
-# também tinha "Power BI"/"Analista de BI" no título — já seria achada por
-# termo que continua na lista. Timeout: os 3 termos concentraram metade
-# (13 de 26) dos timeouts dessas 4 fontes sendo só 3 dos 42 termos (7%) —
-# confirma o padrão relatado. Removidos por render zero e custarem sessão
-# igual a um termo de cargo.
+# Tecnologias da stack principal usadas como termos de busca para capturar
+# anúncios com títulos atípicos, sem referências a ferramentas exclusivas de
+# análise de dados ou BI.
 TERMOS_FERRAMENTA = [
-    "sql",
+    "javascript",
+    "typescript",
+    "node",
+    "react",
+    "nextjs",
+    "java",
+    "docker",
+    "gcp",
+    "google cloud",
     "python",
-    "tableau",
-    "qlik",
-    "looker",
-    "bigquery",
+    "sql",
+    "tailwind",
 ]
 
 TERMOS_BUSCA = TERMOS_CARGO + TERMOS_FERRAMENTA
 
-# Medido: os TERMOS_BUSCA inteiros (hoje 42) rodando em TODO ciclo é o que
-# gera as centenas de sessões de navegador por execução — o custo cresce
-# linear com o tamanho da lista, e a lista só cresce (mais ainda com a
-# expansão internacional puxando mais termos no radar). TERMOS_POR_CICLO é
-# o tamanho do BLOCO usado por ciclo, não o total de termos — main.py roda
-# um bloco por vez em rodízio (ver _proximo_bloco_termos) e avança pro
-# próximo bloco no ciclo seguinte, salvando a posição no jobs.db. Isso
-# desacopla custo por ciclo de tamanho da lista: dobrar TERMOS_BUSCA dobra
-# quantos ciclos até cobrir tudo de novo, não o custo de cada ciclo.
+# TERMOS_POR_CICLO é o tamanho do BLOCO usado por ciclo, não o total de
+# termos — main.py roda um bloco por vez em rodízio (ver
+# _proximo_bloco_termos) e avança no ciclo seguinte, salvando a posição no
+# jobs.db. Mantido em 10 para preservar o custo por ciclo.
 TERMOS_POR_CICLO = 10
 
-# Onde vaga HIBRIDA ou PRESENCIAL e aceita (mais "Remoto", que nao e
-# cidade e sim a porta de entrada da regra de modalidade remota — ver
-# _FLAGS_REMOTO em job.py). Vaga hibrida/presencial fora desta lista e
-# rejeitada; e uma whitelist, nao uma preferencia de ordenacao.
-#
-# Lista revisada contra o requisito escrito pela usuaria: as seis cidades
-# obrigatorias sao Campina Grande, Joao Pessoa, Recife, Natal, Caruaru e
-# Manaus. Maceio e Aracaju ficam por decisao explicita dela (interessam,
-# mesmo fora do requisito minimo).
-#
-# MEDIDO: a lista anterior era "Nordeste", nao "as cidades que interessam",
-# e divergia do requisito nos dois sentidos ao mesmo tempo:
-#   - FALTAVA Manaus. Confirmado em teste: "Manaus - AM" + Hibrido era
-#     REJEITADA. Nenhuma vaga presencial/hibrida de Manaus podia entrar,
-#     e a busca por cidade do LinkedIn (derivada desta lista) nunca
-#     procurou la.
-#   - SOBRAVAM Jaboatao, Teresina, Sao Luis e Petrolina, que aceitavam
-#     hibrida/presencial fora da regra. Confirmado em teste.
-# Nenhum dos 76 testes existentes cobria essas regras — por isso a
-# divergencia sobreviveu. Agora esta em tests/test_regras_de_negocio.py.
-#
-# Custo: LOCATIONS_LINKEDIN_CIDADES_PRESENCIAL e derivada daqui, entao
-# cada cidade e uma busca a mais por termo no LinkedIn. Sai de 11 cidades
-# para 8 — menos requisicao por ciclo E cobrindo Manaus, que faltava.
+# Onde vaga HÍBRIDA ou PRESENCIAL é aceita, além de "Remoto" (que não é
+# cidade, e sim a porta de entrada da regra de modalidade remota — ver
+# _FLAGS_REMOTO em job.py). Vaga híbrida/presencial fora desta whitelist é
+# rejeitada.
 CIDADES = [
     "Remoto",
-    # As seis do requisito
-    "Campina Grande",
-    "João Pessoa",
-    "Recife",
-    "Natal",
-    "Caruaru",
-    "Manaus",
-    # Mantidas por decisao da usuaria, alem do requisito minimo
-    "Maceió",
-    "Aracaju",
+    "Florianópolis",
+    "São José",
+    "Palhoça",
 ]
 
-# MEDIDO: "Data Analyst @ Lisboa" e "Analista de Datos @ Madrid" reprovavam
+# MEDIDO: "Software Engineering Intern @ Lisboa" e "Estágio em Desenvolvimento @ Madrid" reprovavam
 # na localização, não no cargo — CIDADES acima é whitelist só de cidade
 # brasileira, e a expansão de LOCATIONS_LINKEDIN pra Argentina/Chile (ver
 # abaixo) passou a trazer vaga presencial/híbrida em Portugal/Espanha de
@@ -252,10 +191,10 @@ LOCATIONS_LINKEDIN_REMOTO_APENAS = ["Argentina", "Chile", "México", "Colômbia"
 # MEDIDO: a passada nacional acima (location="Brasil") varre o país inteiro
 # e só sobra o que bate em CIDADES depois do filtro — pra termo concorrido
 # em SP/RJ/MG (a maioria), as 3 páginas (30 resultados) nunca chegam numa
-# vaga de cidade menor do Nordeste, porque o volume dos polos maiores
-# ocupa tudo antes. Testado ao vivo: página 1 de "analista de dados" em
+# vaga de cidade menor da região alvo, porque o volume dos polos maiores
+# ocupa tudo antes. Testado ao vivo: página 1 de "estágio em desenvolvimento" em
 # Brasil inteiro veio 100% São Paulo/Curitiba/Brasília, nenhuma do
-# Nordeste. Busca ESPECÍFICA por cidade não depende de volume nacional —
+# região alvo. Busca ESPECÍFICA por cidade não depende de volume nacional —
 # o próprio location= do LinkedIn já restringe o resultado à cidade, então
 # funciona mesmo quando SP/RJ dominam o termo. "Remoto" (item de CIDADES)
 # não é local de busca de verdade — sai da lista, já coberto pela passada
