@@ -3,6 +3,15 @@ import type { Post, Vaga } from "./domain.js";
 import type { SeenStore } from "./seen.js";
 import type { Source } from "./source.js";
 import { sendDigest, type TelegramClient } from "./telegram.js";
+import { triage, type TriageProvider } from "./triage.js";
+
+export interface RunDeps {
+  sources: Source[];
+  telegram: TelegramClient;
+  seen: SeenStore;
+  triageProvider: TriageProvider;
+  now?: () => Date;
+}
 
 export async function collect(sources: Source[]): Promise<Post[]> {
   const posts: Post[] = [];
@@ -12,25 +21,24 @@ export async function collect(sources: Source[]): Promise<Post[]> {
   return posts;
 }
 
-export async function run(
-  sources: Source[],
-  telegram: TelegramClient,
-  seen: SeenStore,
-  now: () => Date = () => new Date(),
-): Promise<Vaga[]> {
-  const posts = await collect(sources);
+export async function run(deps: RunDeps): Promise<Vaga[]> {
+  const now = deps.now ?? (() => new Date());
+  const posts = await collect(deps.sources);
   console.log(`[job-radar] collected ${posts.length} candidate post(s)`);
 
-  const seenIds = await seen.load();
+  const seenIds = await deps.seen.load();
   const novos = dedupe(posts, seenIds);
   console.log(`[job-radar] ${novos.length} new post(s) after dedupe`);
 
-  // Triagem (ticket 05) converte posts em vagas; ainda não implementada.
-  const vagas: Vaga[] = [];
-  await sendDigest(vagas, telegram, now());
+  const { vagas, descartados } = await triage(novos, deps.triageProvider);
+  for (const descartado of descartados) {
+    console.log(`[job-radar] discarded ${descartado.post.id}: ${descartado.motivo}`);
+  }
+
+  await sendDigest(vagas, deps.telegram, now());
 
   if (novos.length > 0) {
-    await seen.save(new Set([...seenIds, ...novos.map((p) => p.id)]));
+    await deps.seen.save(new Set([...seenIds, ...novos.map((p) => p.id)]));
   }
   return vagas;
 }
