@@ -1,7 +1,10 @@
 import { loadConfig } from "./config.js";
+import { LinkedInSource } from "./linkedin.js";
+import { PlaywrightScraper } from "./playwright-scraper.js";
 import { run } from "./run.js";
 import { FileSeenStore } from "./seen.js";
 import { StubSource } from "./source.js";
+import type { Source } from "./source.js";
 import { HttpTelegramClient, type TelegramClient } from "./telegram.js";
 import {
   GeminiTriageProvider,
@@ -40,8 +43,19 @@ if (config.secrets.geminiApiKey) {
   };
 }
 
+let sources: Source[];
+if (config.secrets.liCookie) {
+  sources = config.queries.map(
+    (query) =>
+      new LinkedInSource(query, config.secrets.liCookie!, new PlaywrightScraper()),
+  );
+} else {
+  console.warn("[job-radar] LI_COOKIE ausente; usando fonte stub para demo");
+  sources = [new StubSource()];
+}
+
 run({
-  sources: [new StubSource()],
+  sources,
   telegram,
   seen: new FileSeenStore("data/seen.json"),
   triageProvider,
