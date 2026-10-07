@@ -1,5 +1,6 @@
 import { loadConfig } from "./config.js";
 import { run } from "./run.js";
+import { FileSeenStore } from "./seen.js";
 import { StubSource } from "./source.js";
 import { HttpTelegramClient, type TelegramClient } from "./telegram.js";
 
@@ -22,7 +23,7 @@ if (config.secrets.telegramBotToken && config.secrets.telegramChatId) {
   telegram = { sendMessage: async () => {} };
 }
 
-run([new StubSource()], telegram).catch((err) => {
+run([new StubSource()], telegram, new FileSeenStore("data/seen.json")).catch((err) => {
   console.error("[job-radar] run failed:", err);
   process.exitCode = 1;
 });
