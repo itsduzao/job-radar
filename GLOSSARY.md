@@ -17,8 +17,12 @@ Origem de vagas; o LinkedIn é a primeira.
 _Avoid_: site, provider, canal
 
 **run**:
-Uma rodada completa de varredura (coleta → triagem → digest).
+Uma rodada completa de varredura (coleta → dedupe → triagem → digest).
 _Avoid_: execução, job, ciclo
+
+**dedupe**:
+Etapa do run que descarta posts já vistos (pela chave `id` do post) para não re-notificar.
+_Avoid_: deduplicação, filtro de repetidos
 
 **triagem**:
 Etapa em que a IA confirma se um post corresponde aos critérios.

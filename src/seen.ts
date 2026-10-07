@@ -10,13 +10,17 @@ export class FileSeenStore implements SeenStore {
   constructor(private readonly filePath: string) {}
 
   async load(): Promise<Set<string>> {
+    let raw: string;
     try {
-      const raw = await readFile(this.filePath, "utf8");
-      const parsed: unknown = JSON.parse(raw);
-      return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
-    } catch {
-      return new Set();
+      raw = await readFile(this.filePath, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return new Set();
+      }
+      throw err;
     }
+    const parsed: unknown = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
   }
 
   async save(ids: Set<string>): Promise<void> {
