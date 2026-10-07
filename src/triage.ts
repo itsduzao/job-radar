@@ -1,4 +1,6 @@
-import type { Modalidade, Post, Tipo, Vaga } from "./domain.js";
+import type { Area, Modalidade, Post, Tipo, Vaga } from "./domain.js";
+
+const INVALID_RESPONSE = "resposta inválida do modelo";
 
 export type TriageResult =
   | { relevante: true; vaga: Omit<Vaga, "link"> }
@@ -43,15 +45,21 @@ function parseModalidade(value: unknown): Modalidade | null {
     : null;
 }
 
+function parseArea(value: unknown): Area | null {
+  return value === "backend" || value === "frontend" || value === "fullstack"
+    ? value
+    : null;
+}
+
 export function parseTriageResult(text: string): TriageResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { relevante: false, motivo: "resposta inválida do modelo" };
+    return { relevante: false, motivo: INVALID_RESPONSE };
   }
   if (!isRecord(parsed)) {
-    return { relevante: false, motivo: "resposta inválida do modelo" };
+    return { relevante: false, motivo: INVALID_RESPONSE };
   }
 
   if (parsed.relevante === true) {
@@ -61,13 +69,14 @@ export function parseTriageResult(text: string): TriageResult {
     }
     const tipo = parseTipo(vaga.tipo);
     const modalidade = parseModalidade(vaga.modalidade);
+    const area = parseArea(vaga.area);
     if (
       typeof vaga.role !== "string" ||
       typeof vaga.empresa !== "string" ||
       typeof vaga.localizacao !== "string" ||
-      typeof vaga.area !== "string" ||
       tipo === null ||
-      modalidade === null
+      modalidade === null ||
+      area === null
     ) {
       return { relevante: false, motivo: "campos da vaga inválidos" };
     }
@@ -78,7 +87,7 @@ export function parseTriageResult(text: string): TriageResult {
         empresa: vaga.empresa,
         localizacao: vaga.localizacao,
         tipo,
-        area: vaga.area,
+        area,
         modalidade,
       },
     };
@@ -91,7 +100,7 @@ export function parseTriageResult(text: string): TriageResult {
     };
   }
 
-  return { relevante: false, motivo: "resposta inválida do modelo" };
+  return { relevante: false, motivo: INVALID_RESPONSE };
 }
 
 export class GeminiTriageProvider implements TriageProvider {
@@ -139,11 +148,16 @@ export async function triage(
   const vagas: Vaga[] = [];
   const descartados: { post: Post; motivo: string }[] = [];
   for (const post of posts) {
-    const result = await provider.triagePost(post);
-    if (result.relevante) {
-      vagas.push({ ...result.vaga, link: post.url });
-    } else {
-      descartados.push({ post, motivo: result.motivo });
+    try {
+      const result = await provider.triagePost(post);
+      if (result.relevante) {
+        vagas.push({ ...result.vaga, link: post.url });
+      } else {
+        descartados.push({ post, motivo: result.motivo });
+      }
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      descartados.push({ post, motivo: `erro na triagem: ${motivo}` });
     }
   }
   return { vagas, descartados };

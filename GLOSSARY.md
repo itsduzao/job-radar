@@ -28,6 +28,10 @@ _Avoid_: deduplicação, filtro de repetidos
 Etapa em que a IA confirma se um post corresponde aos critérios.
 _Avoid_: filtro, checagem
 
+**descartado**:
+Post que a triagem considerou irrelevante, registrado com um motivo curto.
+_Avoid_: rejeitado, ignorado
+
 **digest**:
 Mensagem agregada enviada ao Telegram ao fim de cada run.
 _Avoid_: resumo, notificação, alerta

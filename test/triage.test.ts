@@ -85,6 +85,23 @@ describe("parseTriageResult", () => {
     );
     expect(result).toEqual({ relevante: false, motivo: "campos da vaga inválidos" });
   });
+
+  it("descarta vaga com área fora do permitido", () => {
+    const result = parseTriageResult(
+      JSON.stringify({
+        relevante: true,
+        vaga: {
+          role: "x",
+          empresa: "y",
+          localizacao: "z",
+          tipo: "estagio",
+          area: "dados",
+          modalidade: "remoto",
+        },
+      }),
+    );
+    expect(result).toEqual({ relevante: false, motivo: "campos da vaga inválidos" });
+  });
 });
 
 describe("triage", () => {
@@ -123,6 +140,17 @@ describe("triage", () => {
       },
     ]);
     expect(descartados).toEqual([{ post: irrel, motivo: "não é vaga" }]);
+  });
+
+  it("descarta com motivo quando o provider lança erro", async () => {
+    const provider: TriageProvider = {
+      async triagePost() {
+        throw new Error("boom");
+      },
+    };
+    const { vagas, descartados } = await triage([post], provider);
+    expect(vagas).toEqual([]);
+    expect(descartados).toEqual([{ post, motivo: "erro na triagem: boom" }]);
   });
 });
 
