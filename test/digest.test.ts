@@ -1,18 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatDigest } from "../src/digest.js";
-import type { Vaga } from "../src/domain.js";
-
-const runDate = new Date("2026-10-07T12:00:00Z");
-
-const vaga: Vaga = {
-  role: "Estágio em Desenvolvimento Backend",
-  empresa: "Acme",
-  link: "https://example.com/post/1",
-  localizacao: "Florianópolis/SC",
-  tipo: "estagio",
-  area: "backend",
-  modalidade: "remoto",
-};
+import { runDate, vaga } from "./fixtures.js";
 
 describe("formatDigest", () => {
   it("formata o cabeçalho e uma linha por vaga", () => {

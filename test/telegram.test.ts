@@ -1,19 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { HttpTelegramClient, sendDigest } from "../src/telegram.js";
 import type { TelegramClient } from "../src/telegram.js";
-import type { Vaga } from "../src/domain.js";
-
-const runDate = new Date("2026-10-07T12:00:00Z");
-
-const vaga: Vaga = {
-  role: "Estágio Backend",
-  empresa: "Acme",
-  link: "https://example.com/post/1",
-  localizacao: "Florianópolis/SC",
-  tipo: "estagio",
-  area: "backend",
-  modalidade: "remoto",
-};
+import { runDate, vaga } from "./fixtures.js";
 
 function fakeClient() {
   const sendMessage = vi.fn();
@@ -32,7 +20,7 @@ describe("sendDigest", () => {
     await sendDigest([vaga], client, runDate);
     expect(sendMessage).toHaveBeenCalledWith(
       "1 vaga nova (run de 2026-10-07)\n" +
-        "Estágio Backend · Acme · Florianópolis/SC · https://example.com/post/1",
+        "Estágio em Desenvolvimento Backend · Acme · Florianópolis/SC · https://example.com/post/1",
     );
   });
 });
