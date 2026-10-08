@@ -38,8 +38,9 @@ export class PlaywrightScraper implements LinkedInScraper {
     try {
       await page.waitForSelector("[data-urn]", { timeout: 15_000 });
     } catch {
+      const diagnostico = await this.coletarDiagnostico(page);
       throw new Error(
-        "nenhum post carregado na busca do LinkedIn (seletores podem ter mudado)",
+        `nenhum post carregado na busca do LinkedIn (seletores podem ter mudado)\n${diagnostico}`,
       );
     }
     // Best-effort: o DOM do LinkedIn muda sem aviso; estes seletores podem exigir ajuste.
@@ -56,5 +57,17 @@ export class PlaywrightScraper implements LinkedInScraper {
         })
         .filter((p) => p.id.startsWith("urn:li:activity:")),
     );
+  }
+
+  private async coletarDiagnostico(page: Page): Promise<string> {
+    const bodyText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    return [
+      `  url final: ${page.url()}`,
+      `  título: ${(await page.title()) || "(vazio)"}`,
+      `  início do corpo: ${bodyText.slice(0, 500) || "(vazio)"}`,
+    ].join("\n");
   }
 }
