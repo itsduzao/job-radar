@@ -16,6 +16,14 @@ export function isLoginUrl(url: string): boolean {
   );
 }
 
+export function classifyGotoError(err: unknown): string | null {
+  if (!(err instanceof Error)) return null;
+  if (/ERR_TOO_MANY_REDIRECTS/i.test(err.message)) {
+    return "LinkedIn bloqueou o acesso (sessão sinalizada ou rate-limit) — atualize o LI_COOKIE e aguarde antes de tentar de novo";
+  }
+  return null;
+}
+
 export function extractActivityIds(body: string): string[] {
   const ids: string[] = [];
   ACTIVITY_ID_RE.lastIndex = 0;
@@ -65,7 +73,13 @@ export class PlaywrightScraper implements LinkedInScraper {
         bodies.push(readBodySafely(res));
       });
 
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      } catch (err) {
+        const motivo = classifyGotoError(err);
+        if (motivo) throw new Error(motivo);
+        throw err;
+      }
       if (isLoginUrl(page.url())) {
         throw new Error("cookie de sessão do LinkedIn expirado ou inválido");
       }

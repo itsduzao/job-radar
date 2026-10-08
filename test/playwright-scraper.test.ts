@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  classifyGotoError,
   cleanCardText,
   extractActivityIds,
   isLoginUrl,
@@ -90,6 +91,19 @@ describe("cleanCardText", () => {
   });
 });
 
+describe("classifyGotoError", () => {
+  it("identifica o loop de redirecionamento do LinkedIn", () => {
+    expect(classifyGotoError(new Error("page.goto: net::ERR_TOO_MANY_REDIRECTS at https://..."))).toContain(
+      "bloqueou o acesso",
+    );
+  });
+
+  it("devolve null para outros erros", () => {
+    expect(classifyGotoError(new Error("timeout"))).toBeNull();
+    expect(classifyGotoError("string")).toBeNull();
+  });
+});
+
 describe("postFromCard", () => {
   it("usa o activityId como id e url quando presente", () => {
     expect(
@@ -163,6 +177,18 @@ describe("PlaywrightScraper", () => {
     await expect(
       new PlaywrightScraper().fetchPosts("https://busca", "cookie"),
     ).rejects.toThrow("cookie de sessão do LinkedIn expirado ou inválido");
+  });
+
+  it("falha com mensagem clara quando o LinkedIn bloqueia por redirect loop", async () => {
+    const { page } = makePage();
+    page.goto = vi.fn().mockRejectedValue(
+      new Error("page.goto: net::ERR_TOO_MANY_REDIRECTS at https://www.linkedin.com/"),
+    );
+    mountScraper(page);
+
+    await expect(
+      new PlaywrightScraper().fetchPosts("https://busca", "cookie"),
+    ).rejects.toThrow("bloqueou o acesso");
   });
 
   it("inclui diagnóstico quando nenhum post carrega", async () => {
