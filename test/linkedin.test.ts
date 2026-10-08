@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildSearchUrl, LinkedInSource } from "../src/linkedin.js";
-import type { LinkedInScraper, RawPost } from "../src/linkedin.js";
+import type { LinkedInScraper } from "../src/linkedin.js";
+import { isLoginUrl } from "../src/playwright-scraper.js";
 import type { Query } from "../src/config.js";
+import type { Post } from "../src/domain.js";
 
 const query: Query = {
   source: "linkedin",
@@ -21,29 +23,27 @@ describe("buildSearchUrl", () => {
   });
 });
 
-const rawPost: RawPost = {
-  urn: "urn:li:activity:1",
+const post: Post = {
+  id: "urn:li:activity:1",
   texto: "Estágio backend",
   url: "https://www.linkedin.com/feed/update/urn:li:activity:1",
 };
 
 describe("LinkedInSource", () => {
-  it("mapeia posts crus para Post[]", async () => {
-    const scraper: LinkedInScraper = { fetchRawPosts: async () => [rawPost] };
+  it("devolve os posts do scraper", async () => {
+    const scraper: LinkedInScraper = { fetchPosts: async () => [post] };
     const source = new LinkedInSource(query, "cookie", scraper);
-    const posts = await source.fetchPosts();
-    expect(posts).toEqual([
-      {
-        id: "urn:li:activity:1",
-        texto: "Estágio backend",
-        url: "https://www.linkedin.com/feed/update/urn:li:activity:1",
-      },
-    ]);
+    expect(await source.fetchPosts()).toEqual([post]);
+  });
+});
+
+describe("isLoginUrl", () => {
+  it("detecta páginas de login", () => {
+    expect(isLoginUrl("https://www.linkedin.com/login?session_expired")).toBe(true);
+    expect(isLoginUrl("https://www.linkedin.com/authwall")).toBe(true);
   });
 
-  it("lança erro claro quando não há posts (cookie expirado)", async () => {
-    const scraper: LinkedInScraper = { fetchRawPosts: async () => [] };
-    const source = new LinkedInSource(query, "cookie", scraper);
-    await expect(source.fetchPosts()).rejects.toThrow(/cookie de sessão/);
+  it("não marca a busca de conteúdo como login", () => {
+    expect(isLoginUrl("https://www.linkedin.com/search/results/content/")).toBe(false);
   });
 });

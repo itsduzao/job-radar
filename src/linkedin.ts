@@ -2,14 +2,8 @@ import type { Query } from "./config.js";
 import type { Post } from "./domain.js";
 import type { Source } from "./source.js";
 
-export interface RawPost {
-  urn: string;
-  texto: string;
-  url: string;
-}
-
 export interface LinkedInScraper {
-  fetchRawPosts(url: string, cookie: string): Promise<RawPost[]>;
+  fetchPosts(url: string, cookie: string): Promise<Post[]>;
 }
 
 export function buildSearchUrl(query: Query): string {
@@ -30,12 +24,6 @@ export class LinkedInSource implements Source {
 
   async fetchPosts(): Promise<Post[]> {
     const url = buildSearchUrl(this.query);
-    const raw = await this.scraper.fetchRawPosts(url, this.liCookie);
-    if (raw.length === 0) {
-      throw new Error(
-        "nenhum post encontrado; cookie de sessão do LinkedIn pode estar expirado",
-      );
-    }
-    return raw.map((r) => ({ id: r.urn, texto: r.texto, url: r.url }));
+    return this.scraper.fetchPosts(url, this.liCookie);
   }
 }

@@ -44,10 +44,10 @@ if (config.secrets.geminiApiKey) {
 }
 
 let sources: Source[];
-if (config.secrets.liCookie) {
+const liCookie = config.secrets.liCookie;
+if (liCookie) {
   sources = config.queries.map(
-    (query) =>
-      new LinkedInSource(query, config.secrets.liCookie!, new PlaywrightScraper()),
+    (query) => new LinkedInSource(query, liCookie, new PlaywrightScraper()),
   );
 } else {
   console.warn("[job-radar] LI_COOKIE ausente; usando fonte stub para demo");
