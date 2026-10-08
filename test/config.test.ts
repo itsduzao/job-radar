@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 
 const LINKEDIN_QUERY =
-  'vaga (estagio OR junior OR jr) (desenvolvedor OR ti OR tecnologia) (florianopolis OR florianópolis OR "sao jose" OR "são josé" OR remoto OR "home office") NOT Netvagas';
+  "vaga (estagio OR junior OR jr) (desenvolvedor OR ti OR tecnologia)";
 
 describe("loadConfig", () => {
   it("loads the agreed LinkedIn query", () => {
