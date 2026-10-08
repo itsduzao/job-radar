@@ -10,7 +10,7 @@ export interface TriageProvider {
   triagePost(post: Post): Promise<TriageResult>;
 }
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 
 export function buildPrompt(post: Post): string {
   return [
