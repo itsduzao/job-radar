@@ -23,7 +23,7 @@ const QUERIES: Query[] = [
   {
     source: "linkedin",
     sortBy: "date_posted",
-    keywords: "vaga (estagio OR junior OR jr) (desenvolvedor OR ti OR tecnologia)",
+    keywords: "vaga (estagio OR junior OR jr) desenvolvedor NOT Netvagas",
   },
 ];
 
