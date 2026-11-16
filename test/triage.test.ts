@@ -27,6 +27,19 @@ describe("buildPrompt", () => {
     expect(prompt).toContain("remoto");
     expect(prompt).toContain(post.texto);
   });
+
+  it("inclui critério de exclusão para banco de talentos", () => {
+    const prompt = buildPrompt(post);
+    expect(prompt).toContain("banco de talentos");
+    expect(prompt).toContain("talent pool");
+    expect(prompt).toContain("cadastro de interesse");
+    expect(prompt).toContain("banco de currículos");
+  });
+
+  it("menciona Gupy além do LinkedIn", () => {
+    const prompt = buildPrompt(post);
+    expect(prompt).toContain("Gupy");
+  });
 });
 
 describe("parseTriageResult", () => {
@@ -151,6 +164,25 @@ describe("triage", () => {
     const { vagas, descartados } = await triage([post], provider);
     expect(vagas).toEqual([]);
     expect(descartados).toEqual([{ post, motivo: "erro na triagem: boom" }]);
+  });
+
+  it("descarta banco de talentos via provider mock", async () => {
+    const talentPoolPost: Post = {
+      id: "gupy:999",
+      texto: "Banco de Talentos - Cadastro de Interesse para desenvolvedores",
+      url: "https://portal.gupy.io/job/999",
+    };
+    const provider: TriageProvider = {
+      async triagePost(p) {
+        if (p.id === "gupy:999") {
+          return { relevante: false, motivo: "banco de talentos" };
+        }
+        return { relevante: true, vaga: { role: "x", empresa: "y", localizacao: "z", tipo: "estagio", area: "backend", modalidade: "remoto" } };
+      },
+    };
+    const { vagas, descartados } = await triage([talentPoolPost], provider);
+    expect(vagas).toEqual([]);
+    expect(descartados[0].motivo).toBe("banco de talentos");
   });
 });
 

@@ -1,0 +1,5 @@
+{
+  "error": "Forbidden",
+  "message": "Access denied. Cloudflare/WAF protection active.",
+  "statusCode": 403
+}

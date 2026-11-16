@@ -1,5 +1,6 @@
-import { loadConfig } from "./config.js";
+import { loadConfig, type LinkedInQuery, type GupySearchConfig } from "./config.js";
 import { LinkedInSource } from "./linkedin.js";
+import { GupySource } from "./gupy.js";
 import { PlaywrightScraper } from "./playwright-scraper.js";
 import { run } from "./run.js";
 import { FileSeenStore } from "./seen.js";
@@ -11,6 +12,8 @@ import {
   type TriageProvider,
   type TriageResult,
 } from "./triage.js";
+import { HttpClient, createGupyHttpClient } from "./http-client.js";
+import { createLogger } from "./logger.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -20,6 +23,8 @@ try {
 
 const config = loadConfig();
 
+const logger = createLogger("main");
+
 let telegram: TelegramClient;
 if (config.secrets.telegramBotToken && config.secrets.telegramChatId) {
   telegram = new HttpTelegramClient(
@@ -27,7 +32,7 @@ if (config.secrets.telegramBotToken && config.secrets.telegramChatId) {
     config.secrets.telegramChatId,
   );
 } else {
-  console.warn("[job-radar] Telegram creds ausentes; digest desativado");
+  logger.warn("Telegram creds ausentes; digest desativado");
   telegram = { sendMessage: async () => {} };
 }
 
@@ -35,7 +40,7 @@ let triageProvider: TriageProvider;
 if (config.secrets.geminiApiKey) {
   triageProvider = new GeminiTriageProvider(config.secrets.geminiApiKey);
 } else {
-  console.warn("[job-radar] GEMINI_API_KEY ausente; triagem desativada");
+  logger.warn("GEMINI_API_KEY ausente; triagem desativada");
   triageProvider = {
     async triagePost(): Promise<TriageResult> {
       return { relevante: false, motivo: "chave do Gemini ausente" };
@@ -43,16 +48,41 @@ if (config.secrets.geminiApiKey) {
   };
 }
 
-let sources: Source[];
+const httpClient = createGupyHttpClient();
+
+let sources: Source[] = [];
 const liCookie = config.secrets.liCookie;
-if (liCookie) {
-  sources = config.queries.map(
-    (query) => new LinkedInSource(query, liCookie, new PlaywrightScraper()),
+const linkedInQueries = config.queries.filter(
+  (q): q is LinkedInQuery => q.source === "linkedin"
+);
+if (liCookie && linkedInQueries.length > 0) {
+  sources.push(
+    ...linkedInQueries.map(
+      (query) => new LinkedInSource(query, liCookie, new PlaywrightScraper()),
+    )
   );
 } else {
-  console.warn("[job-radar] LI_COOKIE ausente; usando fonte stub para demo");
-  sources = [new StubSource()];
+  logger.warn("LI_COOKIE ausente ou sem queries LinkedIn; LinkedIn source desativado");
 }
+
+const gupyQueries = config.queries.filter(
+  (q): q is GupySearchConfig => q.source === "gupy"
+);
+const dryRun = process.env.GUPY_DRY_RUN === "true";
+if (gupyQueries.length > 0) {
+  for (const query of gupyQueries) {
+    sources.push(
+      new GupySource(query, httpClient, logger.child({ source: "gupy", profile: query.profiles[0]?.name }))
+    );
+  }
+}
+
+logger.info("Sources configured", {
+  enabled: sources.length,
+  linkedin: linkedInQueries.length,
+  gupy: gupyQueries.length,
+  dryRun,
+});
 
 run({
   sources,
@@ -60,6 +90,6 @@ run({
   seen: new FileSeenStore("data/seen.json"),
   triageProvider,
 }).catch((err) => {
-  console.error("[job-radar] run failed:", err);
+  logger.error("Run failed", { error: err instanceof Error ? err.message : String(err) });
   process.exitCode = 1;
 });

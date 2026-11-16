@@ -1,0 +1,12 @@
+{
+  "id": 12345678,
+  "name": "Estágio em Desenvolvimento Backend",
+  "companyName": "TechCorp",
+  "city": "Florianópolis",
+  "state": "SC",
+  "workplaceType": "remote",
+  "jobType": "vacancy_type_internship",
+  "publishedDate": "2026-10-15T10:00:00Z",
+  "description": "<h2>Sobre a vaga</h2><p>Estamos em busca de um estagiário de desenvolvimento backend para se juntar ao nosso time de engenharia.</p><h3>Responsabilidades</h3><ul><li>Desenvolver e manter APIs RESTful em Node.js</li><li>Trabalhar com banco de dados PostgreSQL</li><li>Escrever testes unitários e de integração</li><li>Participar de code reviews</li><li>Colaborar com o time de frontend e produto</li></ul><h3>Requisitos</h3><ul><li>Cursando Ciência da Computação, Engenharia de Software ou áreas correlatas</li><li>Conhecimento em JavaScript/TypeScript</li><li>Noções de Git e controle de versão</li><li>Conhecimento básico de SQL</li><li>Inglês técnico para leitura de documentação</li></ul><h3>Diferenciais</h3><ul><li>Experiência com Node.js/Express ou Fastify</li><li>Conhecimento em Docker</li><li>Testes automatizados (Jest, Vitest)</li><li>CI/CD (GitHub Actions, GitLab CI)</li></ul><h3>Benefícios</h3><ul><li>Bolsa auxílio compatível com o mercado</li><li>Vale refeição/alimentação</li><li>Plano de saúde e odontológico</li><li>Horário flexível</li><li>Trabalho 100% remoto</li><li>Budget para cursos e certificações</li></ul>",
+  "isTalentPool": false
+}

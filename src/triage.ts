@@ -14,13 +14,14 @@ const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 
 export function buildPrompt(post: Post): string {
   return [
-    "Você analisa posts do LinkedIn em busca de vagas de estágio e júnior em desenvolvimento de software.",
+    "Você analisa posts do LinkedIn e Gupy em busca de vagas de estágio e júnior em desenvolvimento de software.",
     "",
     "Critérios para a vaga ser RELEVANTE:",
     "- tipo: estágio ou júnior",
     "- área: desenvolvimento de software (backend, frontend, fullstack); excluir QA, DevOps, Mobile e dados",
     "- localização: São José/SC, Florianópolis/SC, ou remoto/home office",
     "- modalidade: remoto, híbrido ou presencial",
+    "- NÃO é banco de talentos / talent pool / cadastro de interesse / banco de currículos",
     "",
     "Responda APENAS com JSON, sem texto ao redor:",
     '- relevante: {"relevante":true,"vaga":{"role":"...","empresa":"...","localizacao":"...","tipo":"estagio|junior","area":"backend|frontend|fullstack","modalidade":"remoto|hibrido|presencial"}}',

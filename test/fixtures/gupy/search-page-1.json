@@ -1,0 +1,127 @@
+{
+  "data": [
+    {
+      "id": 12345678,
+      "name": "Estágio em Desenvolvimento Backend",
+      "companyName": "TechCorp",
+      "city": "Florianópolis",
+      "state": "SC",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-10-15T10:00:00Z",
+      "description": "<p>Vaga para estagiário de backend com Node.js e PostgreSQL.</p><p>Requisitos: JavaScript, Git, SQL.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345679,
+      "name": "Desenvolvedor Júnior Fullstack",
+      "companyName": "StartupXYZ",
+      "city": "São José",
+      "state": "SC",
+      "workplaceType": "hybrid",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-10-14T14:30:00Z",
+      "description": "<p>Oportunidade para dev júnior React/Node.js.</p><p>Stack: TypeScript, React, Node.js, Docker.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345680,
+      "name": "Estagiário Frontend React",
+      "companyName": "DevAgency",
+      "city": "Palhoça",
+      "state": "SC",
+      "workplaceType": "onSite",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-10-13T09:15:00Z",
+      "description": "<p>Estágio em frontend com React e Tailwind.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345681,
+      "name": "Trainee Backend Java",
+      "companyName": "BigCorp",
+      "city": "São Paulo",
+      "state": "SP",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_trainee",
+      "publishedDate": "2026-10-12T16:45:00Z",
+      "description": "<p>Programa de trainee para backend Java/Spring Boot.</p><p>Local: Remoto (Brasil).</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345682,
+      "name": "Banco de Talentos - Desenvolvimento",
+      "companyName": "TalentPool Inc",
+      "city": "Rio de Janeiro",
+      "state": "RJ",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-10-11T11:00:00Z",
+      "description": "<p>Cadastre seu currículo para futuras oportunidades.</p><p>Esta não é uma vaga aberta, é um banco de talentos.</p>",
+      "isTalentPool": true
+    },
+    {
+      "id": 12345683,
+      "name": "Estágio DevOps",
+      "companyName": "CloudNative",
+      "city": "Florianópolis",
+      "state": "SC",
+      "workplaceType": "hybrid",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-10-10T08:00:00Z",
+      "description": "<p>Estágio em DevOps com AWS, Kubernetes, Terraform.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345684,
+      "name": "Desenvolvedor Júnior Python",
+      "companyName": "DataStartup",
+      "city": "Belo Horizonte",
+      "state": "MG",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-10-09T12:00:00Z",
+      "description": "<p>Vaga júnior para Python/Django/FastAPI.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345685,
+      "name": "Estagiária Backend Node.js",
+      "companyName": "FintechBR",
+      "city": "Curitiba",
+      "state": "PR",
+      "workplaceType": "onSite",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-10-08T15:30:00Z",
+      "description": "<p>Estágio em backend Node.js, PostgreSQL, Redis.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345686,
+      "name": "Junior Frontend Vue.js",
+      "companyName": "WebStudio",
+      "city": "Porto Alegre",
+      "state": "RS",
+      "workplaceType": "hybrid",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-10-07T10:00:00Z",
+      "description": "<p>Vaga júnior Vue.js, Nuxt, TypeScript.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345687,
+      "name": "Cadastro de Interesse - Tech",
+      "companyName": "CorpGrande",
+      "city": "Brasília",
+      "state": "DF",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-10-06T09:00:00Z",
+      "description": "<p>Banco de currículos para área de tecnologia.</p>",
+      "isTalentPool": true
+    }
+  ],
+  "page": 0,
+  "pageSize": 50,
+  "totalPages": 2
+}
