@@ -40,8 +40,17 @@ const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_MAX_PAGES = 20;
 const DEFAULT_MAX_AGE_DAYS = 30;
 const MIN_DESCRIPTION_LENGTH = 200;
+const CIRCUIT_BREAKER_THRESHOLD = 3;
+const CIRCUIT_BREAKER_RESET_MS = 5 * 60 * 1000; // 5 minutes
+
+interface CircuitBreakerState {
+  failures: number;
+  openUntil: number;
+}
 
 export class GupySource implements Source {
+  private readonly circuitBreaker = new Map<string, CircuitBreakerState>();
+
   constructor(
     private readonly config: GupySearchConfig,
     private readonly httpClient: HttpClient,
@@ -64,19 +73,72 @@ export class GupySource implements Source {
     const allPosts: Post[] = [];
     const seenIds = new Set<number>();
     const errors: Array<{ profile: string; term: string; error: Error }> = [];
+    const queryResults: Array<{
+      profile: string;
+      term: string;
+      collected: number;
+      durationMs: number;
+      rateLimitRemaining: number | null;
+      error: Error | null;
+    }> = [];
 
     for (const profile of this.config.profiles) {
       for (const term of this.config.terms) {
+        const queryKey = `${profile.name}:${term}`;
+        const startTime = Date.now();
+        let collected = 0;
+        let rateLimitRemaining: number | null = null;
+        let error: Error | null = null;
+
+        // Check circuit breaker
+        const cbState = this.circuitBreaker.get(queryKey);
+        if (cbState && cbState.openUntil > Date.now()) {
+          this.logger.warn("Circuit breaker open, skipping query", { profile: profile.name, term });
+          queryResults.push({ profile: profile.name, term, collected: 0, durationMs: 0, rateLimitRemaining: null, error: new Error("Circuit breaker open") });
+          continue;
+        }
+
         try {
-          const posts = await this.fetchPostsForProfileAndTerm(profile, term, maxPages, cutoffTime, seenIds);
+          const posts = await this.fetchPostsForProfileAndTerm(profile, term, maxPages, cutoffTime, seenIds, (remaining) => {
+            rateLimitRemaining = remaining;
+          });
+          collected = posts.length;
           allPosts.push(...posts);
-        } catch (error) {
+          // Reset circuit breaker on success
+          this.circuitBreaker.delete(queryKey);
+        } catch (err) {
+          error = err as Error;
           this.logger.error("Gupy query failed", {
             profile: profile.name,
             term,
-            error: error instanceof Error ? error.message : String(error),
+            error: error.message,
           });
-          errors.push({ profile: profile.name, term, error: error as Error });
+          errors.push({ profile: profile.name, term, error });
+          // Update circuit breaker
+          this.updateCircuitBreaker(queryKey);
+        }
+
+        const durationMs = Date.now() - startTime;
+        queryResults.push({ profile: profile.name, term, collected, durationMs, rateLimitRemaining, error });
+
+        // Log structured query result
+        this.logger.info("Gupy query completed", {
+          source: "gupy",
+          profile: profile.name,
+          term,
+          collected,
+          durationMs,
+          rateLimitRemaining,
+          error: error?.message ?? null,
+        });
+
+        // Warn if rate limit is low
+        if (rateLimitRemaining !== null && rateLimitRemaining < 5) {
+          this.logger.warn("Gupy rate limit low", {
+            profile: profile.name,
+            term,
+            rateLimitRemaining,
+          });
         }
       }
     }
@@ -98,9 +160,27 @@ export class GupySource implements Source {
       errors: errors.length,
       profiles: this.config.profiles.length,
       terms: this.config.terms.length,
+      queries: queryResults.map((q) => ({
+        profile: q.profile,
+        term: q.term,
+        collected: q.collected,
+        durationMs: q.durationMs,
+        rateLimitRemaining: q.rateLimitRemaining,
+      })),
     });
 
     return allPosts;
+  }
+
+  private updateCircuitBreaker(queryKey: string): void {
+    const now = Date.now();
+    const state = this.circuitBreaker.get(queryKey) ?? { failures: 0, openUntil: 0 };
+    state.failures += 1;
+    if (state.failures >= CIRCUIT_BREAKER_THRESHOLD) {
+      state.openUntil = now + CIRCUIT_BREAKER_RESET_MS;
+      this.logger.warn("Circuit breaker opened", { queryKey, openUntil: new Date(state.openUntil).toISOString() });
+    }
+    this.circuitBreaker.set(queryKey, state);
   }
 
   private async fetchPostsForProfileAndTerm(
@@ -108,9 +188,13 @@ export class GupySource implements Source {
     term: string,
     maxPages: number,
     cutoffTime: number,
-    seenIds: Set<number>
+    seenIds: Set<number>,
+    onRateLimitHeader: (remaining: number | null) => void
   ): Promise<Post[]> {
     const posts: Post[] = [];
+    let rateLimitRemaining: number | null = null;
+    let lastError: Error | null = null;
+    let hadSuccess = false;
 
     for (let page = 0; page < maxPages; page++) {
       const url = this.buildSearchUrl(profile, term, page);
@@ -119,6 +203,7 @@ export class GupySource implements Source {
       try {
         response = await this.httpClient.get(url);
       } catch (error) {
+        lastError = error as Error;
         if (error instanceof HttpError && error.isRetryable) {
           this.logger.warn("Gupy request failed, retrying", {
             profile: profile.name,
@@ -129,6 +214,17 @@ export class GupySource implements Source {
           continue;
         }
         throw error;
+      }
+
+      hadSuccess = true;
+
+      // Parse rate limit headers
+      const remainingHeader = response.headers.get("ratelimit-remaining");
+      if (remainingHeader) {
+        const remaining = parseInt(remainingHeader, 10);
+        if (!isNaN(remaining)) {
+          rateLimitRemaining = remaining;
+        }
       }
 
       const data = (await response.json()) as GupySearchResponse;
@@ -176,6 +272,11 @@ export class GupySource implements Source {
       }
     }
 
+    if (!hadSuccess && lastError) {
+      throw lastError;
+    }
+
+    onRateLimitHeader(rateLimitRemaining);
     return posts;
   }
 
