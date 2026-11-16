@@ -1,4 +1,4 @@
-import { loadConfig } from "./config.js";
+import { loadConfig, type LinkedInQuery } from "./config.js";
 import { LinkedInSource } from "./linkedin.js";
 import { PlaywrightScraper } from "./playwright-scraper.js";
 import { run } from "./run.js";
@@ -45,12 +45,15 @@ if (config.secrets.geminiApiKey) {
 
 let sources: Source[];
 const liCookie = config.secrets.liCookie;
-if (liCookie) {
-  sources = config.queries.map(
+const linkedInQueries = config.queries.filter(
+  (q): q is LinkedInQuery => q.source === "linkedin"
+);
+if (liCookie && linkedInQueries.length > 0) {
+  sources = linkedInQueries.map(
     (query) => new LinkedInSource(query, liCookie, new PlaywrightScraper()),
   );
 } else {
-  console.warn("[job-radar] LI_COOKIE ausente; usando fonte stub para demo");
+  console.warn("[job-radar] LI_COOKIE ausente ou sem queries LinkedIn; usando fonte stub para demo");
   sources = [new StubSource()];
 }
 
