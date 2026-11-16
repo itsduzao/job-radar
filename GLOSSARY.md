@@ -48,3 +48,12 @@ Segmento de desenvolvimento de software coberto (backend, frontend, fullstack). 
 **critérios**:
 Regras (tipo, área, localização, modalidade) que a triagem aplica para decidir se uma vaga é relevante.
 _Avoid_: filtros, regras de negócio
+
+**Gupy**:
+Plataforma brasileira de recrutamento (portal.gupy.io); segunda fonte de vagas do job-radar.
+
+**banco de talentos**:
+Publicação de "cadastro de interesse" no Gupy que não corresponde a vaga aberta; excluída na triagem.
+
+**portal-api.gupy.io**:
+Endpoint JSON público usado pela fonte Gupy para busca e detalhe de vagas.
