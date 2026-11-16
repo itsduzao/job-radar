@@ -1,11 +1,12 @@
 # Job Radar
 
-Varre posts do LinkedIn em busca de vagas de estágio e júnior em desenvolvimento de software, confirma a relevância com IA (Gemini) e envia um digest diário via Telegram. Roda grátis como cron job do GitHub Actions.
+Varre posts do **LinkedIn** e **Gupy** em busca de vagas de estágio e júnior em desenvolvimento de software, confirma a relevância com IA (Gemini) e envia um digest diário via Telegram. Roda grátis como cron job do GitHub Actions.
 
 ## Pré-requisitos
 
 - Node.js >= 24
 - Credenciais: cookie do LinkedIn, bot do Telegram e chave do Gemini
+- (Opcional) `ENABLE_GUPY_SOURCE=true` para ativar a fonte Gupy
 
 ## Coletando as credenciais
 
@@ -51,3 +52,8 @@ O workflow roda diariamente às 09:00 BRT (cron `0 12 * * *` UTC) e commita de v
 
 - O scraping do LinkedIn é *best-effort*: o DOM muda sem aviso e pode quebrar os seletores (ver `src/playwright-scraper.ts`).
 - A fonte plugável (`Source`) permite adicionar outros sites depois (ver `docs/adr/0002-pluggable-source-layer.md`).
+- Fonte Gupy usa API pública JSON (não Playwright); ver `docs/adr/0003-gupy-source-via-public-search-api.md`.
+
+## Operação
+
+Para detalhes sobre variáveis de ambiente, dry-run, logs estruturados e troubleshooting, veja [`docs/operations.md`](docs/operations.md).
