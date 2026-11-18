@@ -187,19 +187,25 @@ export class PlaywrightScraper implements LinkedInScraper {
         if (responses.length < 100) responses.push({ status: res.status(), url: safeUrl(responseUrl) });
         if (res.status() >= 300 && res.status() < 400) {
           const location = res.headers().location;
-          redirects.push({
-            status: res.status(),
-            from: safeUrl(responseUrl),
-            to: location ? safeUrl(new URL(location, responseUrl).toString()) : null,
-          });
+          if (redirects.length < 50) {
+            let target: string | null = null;
+            try {
+              target = location ? safeUrl(new URL(location, responseUrl).toString()) : null;
+            } catch {
+              target = "(location inválido)";
+            }
+            redirects.push({ status: res.status(), from: safeUrl(responseUrl), to: target });
+          }
         }
         if (RESPONSE_URL_RE.test(responseUrl)) bodies.push(readBodySafely(res));
       });
       page.on("requestfailed", (request) => {
-        failedRequests.push({
-          url: safeUrl(request.url()),
-          error: request.failure()?.errorText ?? null,
-        });
+        if (failedRequests.length < 50) {
+          failedRequests.push({
+            url: safeUrl(request.url()),
+            error: request.failure()?.errorText ?? null,
+          });
+        }
       });
 
       console.info("[linkedin-diagnostic] " + JSON.stringify({
