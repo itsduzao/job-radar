@@ -23,6 +23,18 @@ Guia de operação para o job-radar com suporte a LinkedIn e Gupy.
 | `GUPY_MAX_RETRIES` | `3` | Máximo de tentativas em erros retryable (429, 5xx) |
 | `GUPY_BASE_DELAY_MS` | `1000` | Delay base para backoff exponencial em ms |
 
+### LLM Extraction (Gupy)
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `GUPY_USE_LLM_EXTRACTION` | `false` | Ativa a extração de vagas via Gemini (substitui os seletores CSS/XPath) |
+| `GEMINI_EXTRACTION_MODEL` | `gemini-1.5-flash` | Modelo Gemini usado na extração |
+| `GEMINI_EXTRACTION_MAX_TOKENS` | `8000` | Máximo de tokens de saída por chamada (inteiro positivo) |
+| `GEMINI_EXTRACTION_BATCH_SIZE` | `10` | Cards de vaga enviados por chamada ao Gemini (inteiro positivo) |
+
+Com `GUPY_USE_LLM_EXTRACTION=true`, `GEMINI_API_KEY` passa a ser **obrigatória**: o `loadConfig` falha na inicialização se ela estiver ausente ou vazia. Com a flag desligada, a chave continua opcional (usada apenas pela triagem).
+
+**Custo estimado:** com `batch=10` e ~50 cards por run (5 chamadas de ~10k tokens de entrada e ~2k de saída), o custo fica em torno de **US$ 0,007 por run** no `gemini-1.5-flash` — abaixo de US$ 0,01. Valores inválidos, zero ou negativos em `GEMINI_EXTRACTION_MAX_TOKENS` ou `GEMINI_EXTRACTION_BATCH_SIZE` caem no default.
+
 ## Perfis de Busca Padrão (Gupy)
 
 Quando `ENABLE_GUPY_SOURCE=true`, os seguintes perfis são ativados automaticamente:
