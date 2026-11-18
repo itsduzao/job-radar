@@ -7,8 +7,8 @@ import type { LinkedInScraper } from "./linkedin.js";
 
 const COOKIE_DOMAIN = ".linkedin.com";
 const POST_SELECTOR = 'div[role="listitem"][componentkey^="update-card-focus"]';
-const ACTIVITY_ID_RE = /activityId["\\]*:\\s*["\\]*(\\d+)/g;
-const RESPONSE_URL_RE = /search\\/results\\/content|rsc-action\\/actions\\/pagination/;
+const ACTIVITY_ID_RE = /activityId["\\]*:\s*["\\]*(\d+)/g;
+const RESPONSE_URL_RE = /search\/results\/content|rsc-action\/actions\/pagination/;
 const DIAGNOSTICS_PATH = ".diagnostics/linkedin.jsonl";
 
 interface NavigationDiagnostic {
@@ -47,7 +47,7 @@ function safeUrl(raw: string): string {
 }
 
 function destinationFor(url: string): NavigationDiagnostic["destination"] {
-  if (/\\/(checkpoint|challenge)(\\/|$)/i.test(url)) return "checkpoint";
+  if (/\/(checkpoint|challenge)(\/|$)/i.test(url)) return "checkpoint";
   if (url.includes("/authwall")) return "authwall";
   if (url.includes("/login") || url.includes("session_expired")) return "login";
   if (url.includes("/search/results/content")) return "search";
@@ -59,7 +59,7 @@ async function persistDiagnostic(record: NavigationDiagnostic): Promise<void> {
   console.info("[linkedin-diagnostic] " + line);
   try {
     await mkdir(dirname(DIAGNOSTICS_PATH), { recursive: true });
-    await appendFile(DIAGNOSTICS_PATH, line + "\\n", { encoding: "utf8", mode: 0o600 });
+    await appendFile(DIAGNOSTICS_PATH, line + "\n", { encoding: "utf8", mode: 0o600 });
   } catch (err) {
     // Diagnostics must never change the scraper's functional result.
     console.warn("[linkedin-diagnostic] could not persist diagnostic file:", err);
@@ -93,7 +93,7 @@ export function extractActivityIds(body: string): string[] {
 }
 
 export function cleanCardText(text: string): string {
-  return text.replace(/\\s+/g, " ").replace(/^Publicação no feed\\s*/, "").trim();
+  return text.replace(/\s+/g, " ").replace(/^Publicação no feed\s*/, "").trim();
 }
 
 export function postFromCard(
@@ -155,11 +155,11 @@ export class PlaywrightScraper implements LinkedInScraper {
           runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
         },
       };
-      if (page) record.title = page.title().then ? undefined : undefined;
+      if (page) record.title = await page.title().catch(() => \"(indisponível)\");
       if (error instanceof Error) {
         record.error = {
           name: error.name,
-          message: error.message.replace(/https?:\\/\\/[^\\s)]+/g, (match) => safeUrl(match)),
+          message: error.message.replace(/https?:\/\/[^\s)]+/g, (match) => safeUrl(match)),
         };
       } else if (error !== undefined) {
         record.error = { name: "UnknownError", message: String(error) };
@@ -251,7 +251,7 @@ export class PlaywrightScraper implements LinkedInScraper {
     } catch {
       const diagnostico = await this.coletarDiagnostico(page);
       throw new Error(
-        `nenhum post carregado na busca do LinkedIn (seletores podem ter mudado)\\n${diagnostico}`,
+        `nenhum post carregado na busca do LinkedIn (seletores podem ter mudado)\n${diagnostico}`,
       );
     }
     // Best-effort: rola para disparar a paginação e carregar mais posts.
@@ -276,6 +276,6 @@ export class PlaywrightScraper implements LinkedInScraper {
       `  url final: ${safeUrl(page.url())}`,
       `  título: ${(await page.title()) || "(vazio)"}`,
       `  início do corpo: ${bodyText.slice(0, 500) || "(vazio)"}`,
-    ].join("\\n");
+    ].join("\n");
   }
 }
