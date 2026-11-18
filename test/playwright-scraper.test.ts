@@ -16,6 +16,8 @@ vi.mock("playwright", () => ({
 
 interface ResponseLike {
   url(): string;
+  status(): number;
+  headers(): { location?: string };
   text(): Promise<string>;
 }
 
@@ -140,6 +142,8 @@ describe("PlaywrightScraper", () => {
     ]);
     addResponse({
       url: () => "https://www.linkedin.com/search/results/content/",
+      status: () => 200,
+      headers: () => ({}),
       text: async () => '\\"activityId\\":\\"7513760849698729984\\"',
     });
     mountScraper(page);
