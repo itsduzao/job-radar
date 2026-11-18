@@ -127,7 +127,7 @@ export class PlaywrightScraper implements LinkedInScraper {
     let cookieExpiresAt: string | null = null;
     let page: Page | undefined;
 
-    const buildDiagnostic = (
+    const buildDiagnostic = async (
       event: NavigationDiagnostic["event"],
       error?: unknown,
     ): Promise<NavigationDiagnostic> => {
@@ -184,7 +184,7 @@ export class PlaywrightScraper implements LinkedInScraper {
       const bodies: Promise<string>[] = [];
       page.on("response", (res) => {
         const responseUrl = res.url();
-        responses.push({ status: res.status(), url: safeUrl(responseUrl) });
+        if (responses.length < 100) responses.push({ status: res.status(), url: safeUrl(responseUrl) });
         if (res.status() >= 300 && res.status() < 400) {
           const location = res.headers().location;
           redirects.push({
