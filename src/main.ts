@@ -1,6 +1,7 @@
 import { loadConfig, type LinkedInQuery, type GupySearchConfig } from "./config.js";
 import { LinkedInSource } from "./linkedin.js";
 import { GupySource } from "./gupy.js";
+import { GeminiExtractor } from "./gemini-extractor.js";
 import { PlaywrightScraper, GupyPlaywrightScraper } from "./playwright-scraper.js";
 import { run } from "./run.js";
 import { FileSeenStore } from "./seen.js";
@@ -66,8 +67,34 @@ const gupyQueries = config.queries.filter(
   (q): q is GupySearchConfig => q.source === "gupy"
 );
 const dryRun = process.env.GUPY_DRY_RUN === "true";
+
+logger.info("llm_extraction", {
+  enabled: config.gupyLlm.enabled,
+  model: config.gupyLlm.model,
+  batchSize: config.gupyLlm.batchSize,
+});
+
 if (gupyQueries.length > 0) {
-  const gupyScraper = new GupyPlaywrightScraper();
+  let gupyScraper: GupyPlaywrightScraper;
+  if (config.gupyLlm.enabled) {
+    const extractor = new GeminiExtractor(
+      config.secrets.geminiApiKey!,
+      config.gupyLlm.model,
+      logger.child({ source: "gupy-llm" }),
+    );
+    gupyScraper = new GupyPlaywrightScraper(
+      extractor,
+      true,
+      logger.child({ source: "gupy" }),
+    );
+  } else {
+    gupyScraper = new GupyPlaywrightScraper(
+      undefined,
+      false,
+      logger.child({ source: "gupy" }),
+    );
+  }
+
   for (const query of gupyQueries) {
     sources.push(
       new GupySource(query, gupyScraper, logger.child({ source: "gupy", profile: query.profiles[0]?.name }))
