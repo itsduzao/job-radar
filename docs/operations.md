@@ -31,8 +31,11 @@ Guia de operação para o job-radar com suporte a LinkedIn e Gupy.
 | `GEMINI_EXTRACTION_MODEL` | `gemini-1.5-flash` | Modelo Gemini usado na extração |
 | `GEMINI_EXTRACTION_MAX_TOKENS` | `8000` | Máximo de tokens de saída por chamada (inteiro positivo) |
 | `GEMINI_EXTRACTION_BATCH_SIZE` | `10` | Cards de vaga enviados por chamada ao Gemini (inteiro positivo) |
+| `GEMINI_TIMEOUT_MS` | `30000` | Timeout por chamada ao Gemini em ms (inteiro positivo); estourou, o lote falha e cai no fallback/legacy |
+| `GEMINI_INPUT_COST_PER_MILLION` | `0.075` | Custo em US$ por 1M tokens de entrada, usado no log `estimatedCostUsd` |
+| `GEMINI_OUTPUT_COST_PER_MILLION` | `0.30` | Custo em US$ por 1M tokens de saída, usado no log `estimatedCostUsd` |
 
-Com `GUPY_USE_LLM_EXTRACTION=true`, `GEMINI_API_KEY` passa a ser **obrigatória**: o `loadConfig` falha na inicialização se ela estiver ausente ou vazia. Com a flag desligada, a chave continua opcional (usada apenas pela triagem). Valores inválidos, zero ou negativos em `GEMINI_EXTRACTION_MAX_TOKENS` ou `GEMINI_EXTRACTION_BATCH_SIZE` caem no default.
+Com `GUPY_USE_LLM_EXTRACTION=true`, `GEMINI_API_KEY` passa a ser **obrigatória**: o `loadConfig` falha na inicialização se ela estiver ausente ou vazia. Com a flag desligada, a chave continua opcional (usada apenas pela triagem). **O modo shadow também precisa da chave**: com `GUPY_LLM_SHADOW=true` e sem `GEMINI_API_KEY`, o processo loga um `warn` e segue só com seletores (não quebra). Se `GUPY_USE_LLM_EXTRACTION=true` e `GUPY_LLM_SHADOW=true` ao mesmo tempo, vale o modo LLM puro (shadow é ignorado). Valores inválidos, zero ou negativos em `GEMINI_EXTRACTION_MAX_TOKENS`, `GEMINI_EXTRACTION_BATCH_SIZE` ou `GEMINI_TIMEOUT_MS` caem no default.
 
 #### Custo estimado
 
@@ -44,6 +47,7 @@ Referência de preço do `gemini-1.5-flash` (lista, nov/2026): **US$ 0,075 por 1
 - **Batch menor** (ex.: 5) aumenta o número de chamadas, o overhead do prompt e a latência; **batch maior** (ex.: 20) reduz chamadas, mas aproxima a saída do teto de `GEMINI_EXTRACTION_MAX_TOKENS`. O total de tokens de entrada muda pouco — o ganho é latência/requests.
 - **`GEMINI_EXTRACTION_MAX_TOKENS`** limita a saída, não o gasto diretamente. Baixo demais trunca o JSON, o que dispara as 2 retentativas corretivas e **triplica** o custo daquele lote. O default 8000 acomoda ~10–15 vagas com descrição.
 - O modo card-only é mais barato (sem descrições); enviar o HTML da página inteira para preservar `__NEXT_DATA__` aumenta a entrada por chamada. Meça os dois antes de escolher o default.
+- **Timeout e métricas**: `GEMINI_TIMEOUT_MS` aborta a chamada individual; um lote que estoura o timeout falha e cai no fallback por seletores (modo puro) ou mantém a saída legacy (shadow). Cada lote loga `inputTokens`, `outputTokens`, `latencyMs` e `retryCount`; o fim do run loga `gupy extraction run summary` com `totalTokens` e `estimatedCostUsd`. Ajuste os preços via `GEMINI_INPUT_COST_PER_MILLION` / `GEMINI_OUTPUT_COST_PER_MILLION` se a tabela do provedor mudar.
 
 #### Atualizando as fixtures
 
@@ -116,18 +120,47 @@ await browser.close();
 
 **`on-site` / enums desconhecidos**
 - O portal expõe `on-site` em `__NEXT_DATA__`; o contrato usa `onSite`. O prompt normaliza, mas variações novas (`onsite`, `presencial`, `home office`) podem escapar.
-- Hoje um enum inválido invalida o lote inteiro e dispara retentativa; o ticket 05 deve normalizar para `"unknown"` e descartar só a vaga ruim. Se o log mostrar `workplaceType inválido`, inspecione a saída do modelo e ajuste o prompt.
+- Desde o ticket 05, um enum inválido de `workplaceType`/`jobType` é normalizado para `"unknown"` e a vaga **não** derruba o lote. Só vaga sem `id` numérico válido ou sem `title` é descartada, com log `dropped_invalid_job` (`batchIndex`, `index`, `reason`); as demais seguem no resultado. Se o log mostrar muitos drops, inspecione a resposta do modelo e ajuste o prompt.
 
 **Zero cards**
 - Confirme a rota: `/job-search/term=<termo>` (path), não `?term=<termo>`.
 - Conte `a[href*="/job/"]` na página salva. Se houver links e o LLM retornar `[]`, o HTML enviado pode não conter os cards (JS não renderizado) ou o batch pode estar vazio.
+- Um resultado vazio do LLM não gera `Post[]` e encerra a paginação com segurança (sem loop nem retry infinito).
 - Se não houver links, o portal mudou de layout/rota: recapture as fixtures com o runbook acima antes de mexer no prompt.
+
+#### Modo shadow e log de divergência
+
+`GUPY_LLM_SHADOW=true` (com `GEMINI_API_KEY`) roda, por página, a extração LLM **e** os seletores legados. A saída de produção continua sendo a dos seletores — o modo serve só para medir recall/precisão antes de ligar `GUPY_USE_LLM_EXTRACTION`. Se a chamada ao Gemini falhar, o erro vira `warn` e a saída legacy é mantida; o run não quebra.
+
+Um log por página processada:
+
+```json
+{"level":"info","source":"gupy","msg":"shadow","shadow":true,"page":0,"cardsLegacy":12,"cardsLlm":11,"idsOnlyLegacy":["12916776"],"idsOnlyLlm":["12855594"],"matched":10,"missed":1}
+```
+
+- `cardsLegacy` / `cardsLlm`: vagas devolvidas por cada caminho.
+- `matched`: ids presentes nos dois caminhos.
+- `missed`: quantidade de ids legacy ausentes no LLM (igual ao tamanho de `idsOnlyLegacy`) — perda de recall.
+- `idsOnlyLegacy`: ids exclusivos dos seletores (o LLM não achou).
+- `idsOnlyLlm`: ids exclusivos do LLM (candidato a ganho de recall; confira se são vagas reais).
+- `page`: índice zero-based da página.
+
+#### Validação offline (E2E)
+
+O gate offline não usa rede: Playwright e Gemini são mockados e as fixtures reais alimentam o scraper.
+
+```bash
+npm test                                      # suíte completa, incluindo o E2E
+npx vitest run test/gupy-llm-e2e.test.ts      # só o gate E2E
+```
+
+`test/gupy-llm-e2e.test.ts` carrega `test/fixtures/gupy/job-cards-real.json` e `extracted-jobs-real.json`, cobre `Post[]` do modo LLM (5 vagas, ids `gupy:{id}`, URL canônica e bloco `texto`), o log `shadow`, o caso de zero vagas (parada de paginação) e garante que `fetch` nunca é chamado. Rode antes de qualquer mudança de prompt/seletor.
 
 #### Validação em staging
 
 1. **Baseline (seletores)**: `ENABLE_GUPY_SOURCE=true GUPY_USE_LLM_EXTRACTION=false GUPY_LLM_SHADOW=false`. Registre ids coletados e duração. Se o baseline já vier vazio, os seletores estão quebrados — não use esse número como referência.
-2. **Shadow (3 runs)**: `GUPY_USE_LLM_EXTRACTION=false GUPY_LLM_SHADOW=true`. A produção continua usando seletores; compare nos logs `shadow` os campos `matched`, `missed`, `idsOnlyLegacy` e `idsOnlyLlm`. O modo shadow chega no ticket 06 e depende de `GUPY_LLM_SHADOW` no `.env.example`.
-3. **Dry-run da extração**: `GUPY_USE_LLM_EXTRACTION=true GUPY_LLM_SHADOW=false`. Atenção: hoje `GUPY_DRY_RUN=true` retorna `[]` **antes** de chamar o scraper (`GupySource.fetchPosts`), então ele não exercita a extração. Rode com `GUPY_DRY_RUN=false` e inspecione os logs/`Post[]`, ou use o modo dry-run do ticket 06. Confira ids `gupy:{id}`, URLs canônicas e o bloco `texto` enriquecido.
+2. **Shadow (3 runs)**: `ENABLE_GUPY_SOURCE=true GUPY_USE_LLM_EXTRACTION=false GUPY_LLM_SHADOW=true`. A produção continua usando seletores; compare nos logs `shadow` os campos `matched`, `missed`, `idsOnlyLegacy` e `idsOnlyLlm`. Três runs consecutivos mostram se a divergência é estável ou ruído.
+3. **Dry-run da extração**: `GUPY_USE_LLM_EXTRACTION=true GUPY_LLM_SHADOW=false`. Atenção: `GUPY_DRY_RUN=true` retorna `[]` **antes** de chamar o scraper (`GupySource.fetchPosts`), então ele não exercita a extração. Para inspecionar `Post[]`, rode com `GUPY_DRY_RUN=false` e sem credenciais do Telegram (digest desativado), ou use o modo shadow para comparar sem mudar a produção. Confira ids `gupy:{id}`, URLs canônicas e o bloco `texto` enriquecido.
 4. **Produção**: ligue `GUPY_USE_LLM_EXTRACTION=true` e monitore os 3 primeiros runs. Critérios de aceite: mesmos ids do baseline (ou melhores), nenhum aumento de buscas com zero cards, custo dentro da faixa estimada. Rollback: `GUPY_USE_LLM_EXTRACTION=false` (sem deploy).
 
 ## Perfis de Busca Padrão (Gupy)

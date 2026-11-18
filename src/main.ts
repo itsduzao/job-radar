@@ -67,14 +67,17 @@ const gupyQueries = config.queries.filter(
   (q): q is GupySearchConfig => q.source === "gupy"
 );
 const dryRun = process.env.GUPY_DRY_RUN === "true";
+const llmShadow = process.env.GUPY_LLM_SHADOW === "true";
 
 logger.info("llm_extraction", {
   enabled: config.gupyLlm.enabled,
   model: config.gupyLlm.model,
   batchSize: config.gupyLlm.batchSize,
+  llm_shadow: llmShadow ? "enabled" : "disabled",
 });
 
 if (gupyQueries.length > 0) {
+  const gupyLogger = logger.child({ source: "gupy" });
   let gupyScraper: GupyPlaywrightScraper;
   if (config.gupyLlm.enabled) {
     const extractor = new GeminiExtractor(
@@ -82,17 +85,21 @@ if (gupyQueries.length > 0) {
       config.gupyLlm.model,
       logger.child({ source: "gupy-llm" }),
     );
-    gupyScraper = new GupyPlaywrightScraper(
-      extractor,
-      true,
-      logger.child({ source: "gupy" }),
+    gupyScraper = new GupyPlaywrightScraper(extractor, true, gupyLogger);
+  } else if (llmShadow && config.secrets.geminiApiKey) {
+    const extractor = new GeminiExtractor(
+      config.secrets.geminiApiKey,
+      config.gupyLlm.model,
+      logger.child({ source: "gupy-llm" }),
     );
+    gupyScraper = new GupyPlaywrightScraper(extractor, false, gupyLogger, true);
   } else {
-    gupyScraper = new GupyPlaywrightScraper(
-      undefined,
-      false,
-      logger.child({ source: "gupy" }),
-    );
+    if (llmShadow) {
+      logger.warn(
+        "GUPY_LLM_SHADOW=true sem GEMINI_API_KEY; shadow desativado, usando apenas seletores",
+      );
+    }
+    gupyScraper = new GupyPlaywrightScraper(undefined, false, gupyLogger);
   }
 
   for (const query of gupyQueries) {

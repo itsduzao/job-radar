@@ -186,6 +186,7 @@ export class GupyPlaywrightScraper implements GupyScraper {
     private readonly extractor?: JobExtractor,
     private readonly useLLM = false,
     logger?: Logger,
+    private readonly shadow = false,
   ) {
     this.logger = logger ?? defaultGupyLogger;
   }
@@ -235,6 +236,19 @@ export class GupyPlaywrightScraper implements GupyScraper {
           if (pageResult.jobsOut === 0) {
             break; // No jobs found, stop pagination
           }
+        } else if (this.shadow && extractor) {
+          const pageResult = await this.extractPageInShadow(
+            page,
+            url,
+            currentPage,
+            extractor,
+          );
+
+          posts.push(...pageResult.posts);
+
+          if (pageResult.jobsOut === 0) {
+            break; // Legacy output is the source of truth; stop when it is empty
+          }
         } else {
           await this.waitForLegacyCards(page, url);
 
@@ -275,32 +289,14 @@ export class GupyPlaywrightScraper implements GupyScraper {
     pageIndex: number,
     extractor: JobExtractor,
   ): Promise<{ posts: Post[]; jobsOut: number }> {
-    try {
-      await page.waitForSelector(GUPY_JOB_LINK_SELECTOR, { timeout: 30_000 });
-    } catch {
-      this.logger.warn("Job link selector not found, continuing", { url, page: pageIndex });
-    }
-
-    const cardHtmls = await this.discoverCardHtmls(page);
+    const cardHtmls = await this.prepareLLMCards(page, url, pageIndex);
 
     if (cardHtmls.length === 0) {
-      this.logger.info("llm_extraction", {
-        page: pageIndex,
-        cardsIn: 0,
-        jobsOut: 0,
-        fallbackUsed: false,
-      });
       return { posts: [], jobsOut: 0 };
     }
 
     try {
-      const jobs = await extractor.extractJobs(cardHtmls, url);
-      this.logger.info("llm_extraction", {
-        page: pageIndex,
-        cardsIn: cardHtmls.length,
-        jobsOut: jobs.length,
-        fallbackUsed: false,
-      });
+      const jobs = await this.runLLMExtraction(cardHtmls, url, pageIndex, extractor);
       return {
         posts: jobs.map((job) => this.mapExtractedJobToPost(job)),
         jobsOut: jobs.length,
@@ -324,6 +320,99 @@ export class GupyPlaywrightScraper implements GupyScraper {
         jobsOut: legacyJobs.length,
       };
     }
+  }
+
+  /**
+   * Shadow mode: returns the legacy mapping (production source of truth) while
+   * also running the LLM path so divergence can be measured. LLM failures are
+   * logged and never affect the returned posts.
+   */
+  private async extractPageInShadow(
+    page: Page,
+    url: string,
+    pageIndex: number,
+    extractor: JobExtractor,
+  ): Promise<{ posts: Post[]; jobsOut: number }> {
+    await this.waitForLegacyCards(page, url);
+    const legacyJobs = await this.extractJobs(page);
+
+    let llmJobs: ExtractedJob[] = [];
+    try {
+      const cardHtmls = await this.prepareLLMCards(page, url, pageIndex);
+      if (cardHtmls.length > 0) {
+        llmJobs = await this.runLLMExtraction(cardHtmls, url, pageIndex, extractor);
+      }
+    } catch (err) {
+      this.logger.warn("shadow llm_extraction failed; keeping legacy output", {
+        page: pageIndex,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const legacyIds = [...new Set(legacyJobs.map((job) => job.id))];
+    const llmIds = [...new Set(llmJobs.map((job) => job.id))];
+    const legacyIdSet = new Set(legacyIds);
+    const llmIdSet = new Set(llmIds);
+    const idsOnlyLegacy = legacyIds.filter((id) => !llmIdSet.has(id));
+    const idsOnlyLlm = llmIds.filter((id) => !legacyIdSet.has(id));
+    const matched = legacyIds.filter((id) => llmIdSet.has(id)).length;
+
+    this.logger.info("shadow", {
+      shadow: true,
+      page: pageIndex,
+      cardsLegacy: legacyJobs.length,
+      cardsLlm: llmJobs.length,
+      idsOnlyLegacy,
+      idsOnlyLlm,
+      matched,
+      missed: idsOnlyLegacy.length,
+    });
+
+    return {
+      posts: legacyJobs.map((job) => this.mapJobToPost(job)),
+      jobsOut: legacyJobs.length,
+    };
+  }
+
+  private async prepareLLMCards(
+    page: Page,
+    url: string,
+    pageIndex: number,
+  ): Promise<string[]> {
+    try {
+      await page.waitForSelector(GUPY_JOB_LINK_SELECTOR, { timeout: 30_000 });
+    } catch {
+      this.logger.warn("Job link selector not found, continuing", { url, page: pageIndex });
+    }
+
+    const cardHtmls = await this.discoverCardHtmls(page);
+
+    if (cardHtmls.length === 0) {
+      this.logger.info("llm_extraction", {
+        page: pageIndex,
+        cardsIn: 0,
+        jobsOut: 0,
+        fallbackUsed: false,
+      });
+    }
+
+    return cardHtmls;
+  }
+
+  private async runLLMExtraction(
+    cardHtmls: string[],
+    url: string,
+    pageIndex: number,
+    extractor: JobExtractor,
+  ): Promise<ExtractedJob[]> {
+    const jobs = await extractor.extractJobs(cardHtmls, url);
+    this.logger.info("llm_extraction", {
+      page: pageIndex,
+      cardsIn: cardHtmls.length,
+      jobsOut: jobs.length,
+      fallbackUsed: false,
+    });
+    return jobs;
   }
 
   private async discoverCardHtmls(page: Page): Promise<string[]> {
