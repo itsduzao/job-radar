@@ -52,7 +52,8 @@ O workflow roda diariamente às 09:00 BRT (cron `0 12 * * *` UTC) e commita de v
 
 - O scraping do LinkedIn é *best-effort*: o DOM muda sem aviso e pode quebrar os seletores (ver `src/playwright-scraper.ts`).
 - A fonte plugável (`Source`) permite adicionar outros sites depois (ver `docs/adr/0002-pluggable-source-layer.md`).
-- Fonte Gupy usa API pública JSON (não Playwright); ver `docs/adr/0003-gupy-source-via-public-search-api.md`.
+- A fonte Gupy carrega o portal de busca com Playwright; a API pública JSON (ADR-0003) segue como alternativa estruturada. Ver `docs/adr/0003-gupy-source-via-public-search-api.md`.
+- Extração de vagas do Gupy via LLM (Gemini) é opcional e vem desligada por padrão; ver [Extração via LLM](docs/operations.md#llm-extraction-gupy) e `docs/adr/0004-gupy-llm-html-extraction.md`.
 
 ## Operação
 
