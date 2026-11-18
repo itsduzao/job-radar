@@ -144,7 +144,6 @@ export class GupySource implements Source {
 
   private buildSearchUrl(profile: GupySearchProfile, term: string): string {
     const params = new URLSearchParams();
-    params.set("term", term);
 
     if (profile.state) {
       params.set("state", profile.state);
@@ -165,7 +164,10 @@ export class GupySource implements Source {
       }
     }
 
-    return `https://portal.gupy.io/job-search?${params.toString()}`;
+    const query = params.toString();
+    return `https://portal.gupy.io/job-search/term=${encodeURIComponent(term)}${
+      query ? `?${query}` : ""
+    }`;
   }
 
   private extractPublishedDate(texto: string): number {

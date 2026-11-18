@@ -1,6 +1,8 @@
 import { chromium } from "playwright";
 import type { Page, Response } from "playwright";
 import type { Post } from "./domain.js";
+import type { ExtractedJob, JobExtractor } from "./gemini-extractor.js";
+import type { Logger } from "./logger.js";
 import type { LinkedInScraper } from "./linkedin.js";
 
 const COOKIE_DOMAIN = ".linkedin.com";
@@ -158,7 +160,36 @@ interface GupyJobCard {
   url: string;
 }
 
+const DEFAULT_GUPY_MAX_PAGES = 20;
+
+const defaultGupyLogger: Logger = {
+  info: () => {},
+  warn: (msg, fields) => {
+    console.warn(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "warn",
+        source: "gupy-playwright",
+        msg,
+        ...fields,
+      }),
+    );
+  },
+  error: () => {},
+  child: () => defaultGupyLogger,
+};
+
 export class GupyPlaywrightScraper implements GupyScraper {
+  private readonly logger: Logger;
+
+  constructor(
+    private readonly extractor?: JobExtractor,
+    private readonly useLLM = false,
+    logger?: Logger,
+  ) {
+    this.logger = logger ?? defaultGupyLogger;
+  }
+
   async fetchPosts(url: string): Promise<Post[]> {
     const browser = await chromium.launch({ 
       headless: true,
@@ -180,25 +211,39 @@ export class GupyPlaywrightScraper implements GupyScraper {
         throw new Error(`Falha ao acessar Gupy: ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      const allJobs: GupyJobCard[] = [];
+      const maxPages = parseInt(process.env.GUPY_MAX_PAGES ?? "", 10) || DEFAULT_GUPY_MAX_PAGES;
+      const extractor = this.extractor;
+      const posts: Post[] = [];
+      const seenIds = new Set<string>();
       let currentPage = 0;
-      const maxPages = 20;
 
       while (currentPage < maxPages) {
-        // Wait for job cards to load with longer timeout
-        try {
-          await page.waitForSelector(GUPY_JOB_CARD_SELECTOR, { timeout: 30_000 });
-        } catch {
-          // Selector might not match, try to continue anyway
-          this.logger?.warn?.("Job card selector not found, continuing", { url });
-        }
+        if (this.useLLM && extractor) {
+          const pageResult = await this.extractPageWithLLM(
+            page,
+            url,
+            currentPage,
+            extractor,
+          );
 
-        // Extract jobs from current page
-        const jobs = await this.extractJobs(page);
-        allJobs.push(...jobs);
+          for (const post of pageResult.posts) {
+            if (seenIds.has(post.id)) continue;
+            seenIds.add(post.id);
+            posts.push(post);
+          }
 
-        if (jobs.length === 0) {
-          break; // No jobs found, stop pagination
+          if (pageResult.jobsOut === 0) {
+            break; // No jobs found, stop pagination
+          }
+        } else {
+          await this.waitForLegacyCards(page, url);
+
+          // Extract jobs from current page using the legacy selectors
+          const jobs = await this.extractJobs(page);
+          if (jobs.length === 0) {
+            break; // No jobs found, stop pagination
+          }
+          posts.push(...jobs.map((job) => this.mapJobToPost(job)));
         }
 
         // Try to go to next page
@@ -209,17 +254,97 @@ export class GupyPlaywrightScraper implements GupyScraper {
         await page.waitForTimeout(2000); // Rate limiting
       }
 
-      return allJobs.map(job => this.mapJobToPost(job));
+      return posts;
     } finally {
       await browser.close().catch(() => {});
     }
   }
 
-  private logger = {
-    warn: (msg: string, meta: Record<string, unknown>) => {
-      console.warn(JSON.stringify({ ts: new Date().toISOString(), level: "warn", source: "gupy-playwright", msg, ...meta }));
+  private async waitForLegacyCards(page: Page, url: string): Promise<void> {
+    try {
+      await page.waitForSelector(GUPY_JOB_CARD_SELECTOR, { timeout: 30_000 });
+    } catch {
+      // Selector might not match, try to continue anyway
+      this.logger.warn("Job card selector not found, continuing", { url });
     }
-  };
+  }
+
+  private async extractPageWithLLM(
+    page: Page,
+    url: string,
+    pageIndex: number,
+    extractor: JobExtractor,
+  ): Promise<{ posts: Post[]; jobsOut: number }> {
+    try {
+      await page.waitForSelector(GUPY_JOB_LINK_SELECTOR, { timeout: 30_000 });
+    } catch {
+      this.logger.warn("Job link selector not found, continuing", { url, page: pageIndex });
+    }
+
+    const cardHtmls = await this.discoverCardHtmls(page);
+
+    if (cardHtmls.length === 0) {
+      this.logger.info("llm_extraction", {
+        page: pageIndex,
+        cardsIn: 0,
+        jobsOut: 0,
+        fallbackUsed: false,
+      });
+      return { posts: [], jobsOut: 0 };
+    }
+
+    try {
+      const jobs = await extractor.extractJobs(cardHtmls, url);
+      this.logger.info("llm_extraction", {
+        page: pageIndex,
+        cardsIn: cardHtmls.length,
+        jobsOut: jobs.length,
+        fallbackUsed: false,
+      });
+      return {
+        posts: jobs.map((job) => this.mapExtractedJobToPost(job)),
+        jobsOut: jobs.length,
+      };
+    } catch (err) {
+      this.logger.warn("llm_extraction failed; falling back to legacy selectors", {
+        page: pageIndex,
+        cardsIn: cardHtmls.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
+
+      const legacyJobs = await this.extractJobs(page);
+      this.logger.info("llm_extraction", {
+        page: pageIndex,
+        cardsIn: cardHtmls.length,
+        jobsOut: legacyJobs.length,
+        fallbackUsed: true,
+      });
+      return {
+        posts: legacyJobs.map((job) => this.mapJobToPost(job)),
+        jobsOut: legacyJobs.length,
+      };
+    }
+  }
+
+  private async discoverCardHtmls(page: Page): Promise<string[]> {
+    return page.$$eval(GUPY_JOB_LINK_SELECTOR, (links) => {
+      const seenHrefs = new Set<string>();
+      const cardHtmls: string[] = [];
+
+      for (const link of links) {
+        const href = link.getAttribute("href") ?? "";
+        if (!href || seenHrefs.has(href)) continue;
+
+        const card = link.closest("li, article");
+        if (!card) continue;
+
+        seenHrefs.add(href);
+        cardHtmls.push(card.outerHTML);
+      }
+
+      return cardHtmls;
+    });
+  }
 
   private async extractJobs(page: Page): Promise<GupyJobCard[]> {
     return page.$$eval(GUPY_JOB_CARD_SELECTOR, (cards) => {
@@ -306,6 +431,38 @@ export class GupyPlaywrightScraper implements GupyScraper {
     return {
       id: `gupy:${job.id}`,
       url: job.url.startsWith("http") ? job.url : `https://portal.gupy.io${job.url}`,
+      texto,
+    };
+  }
+
+  private mapExtractedJobToPost(job: ExtractedJob): Post {
+    const workplaceTypeMap: Record<ExtractedJob["workplaceType"], string> = {
+      remote: "remoto",
+      onSite: "presencial",
+      hybrid: "hibrido",
+      unknown: "desconhecido",
+    };
+    const jobTypeMap: Record<ExtractedJob["jobType"], string> = {
+      internship: "estagio",
+      trainee: "junior",
+      effective: "junior",
+      talent_pool: "banco de talentos",
+      unknown: "desconhecido",
+    };
+
+    const texto = [
+      `Título: ${job.title}`,
+      `Empresa: ${job.company}`,
+      `Localização: ${job.location}`,
+      `Modalidade: ${workplaceTypeMap[job.workplaceType]}`,
+      `Tipo: ${jobTypeMap[job.jobType]}`,
+      `Publicado: ${job.publishedDate}`,
+      `Descrição: ${job.description.slice(0, 3000)}`,
+    ].join("\n");
+
+    return {
+      id: `gupy:${job.id}`,
+      url: `https://portal.gupy.io/job/${job.id}`,
       texto,
     };
   }
