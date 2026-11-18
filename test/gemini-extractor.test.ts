@@ -225,39 +225,27 @@ describe("GeminiExtractor.extractJobs", () => {
     expect(jobs[0].jobType).toBe("talent_pool");
   });
 
-  it("rejects after two corrective retries when a required field is missing", async () => {
-    const invalidJob: Record<string, unknown> = { ...makeJob(0) };
+  it("drops only the job with a missing required field instead of failing the batch", async () => {
+    const invalidJob: Record<string, unknown> = { ...makeJob(1) };
     delete invalidJob.title;
     const fetchMock = createFetchMock().mockResolvedValue(
-      geminiResponse(JSON.stringify([invalidJob])),
+      geminiResponse(JSON.stringify([makeJob(0), invalidJob])),
     );
     vi.stubGlobal("fetch", fetchMock);
     const { logger, calls } = createCapturingLogger();
 
     const extractor = new GeminiExtractor("test-key", undefined, logger);
+    const jobs = await extractor.extractJobs([jobCards[0]], SOURCE_URL);
 
-    await expect(extractor.extractJobs([jobCards[0]], SOURCE_URL)).rejects.toThrow(
-      /batch 0.*title/,
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(jobs).toEqual([makeJob(0)]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const retryPrompts = [1, 2].map((index) => userPrompt(fetchMock, index));
-    for (const prompt of retryPrompts) {
-      expect(prompt).toContain("A resposta anterior falhou");
-      expect(prompt).toContain("title");
-    }
-
-    const failureLog = calls.find((call) => call.level === "error");
-    expect(failureLog?.fields).toMatchObject({
-      batchIndex: 0,
-      cardsIn: 1,
-      jobsOut: 0,
-      retryCount: 2,
-      success: false,
-    });
+    const droppedLog = calls.find((call) => call.msg === "dropped_invalid_job");
+    expect(droppedLog?.fields).toMatchObject({ batchIndex: 0, index: 1 });
+    expect(String(droppedLog?.fields?.reason)).toMatch(/title/);
   });
 
-  it("rejects when an enum field is outside the allowed values", async () => {
+  it("normalizes an enum field outside the allowed values to unknown", async () => {
     const invalidJob = { ...makeJob(0), workplaceType: "presencial" };
     const fetchMock = createFetchMock().mockResolvedValue(
       geminiResponse(JSON.stringify([invalidJob])),
@@ -265,22 +253,28 @@ describe("GeminiExtractor.extractJobs", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const extractor = new GeminiExtractor("test-key");
+    const jobs = await extractor.extractJobs([jobCards[0]], SOURCE_URL);
 
-    await expect(extractor.extractJobs([jobCards[0]], SOURCE_URL)).rejects.toThrow(
-      /workplaceType/,
-    );
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].workplaceType).toBe("unknown");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects when the job id is not numeric", async () => {
+  it("drops a job whose id is not numeric", async () => {
     const invalidJob = { ...makeJob(0), id: "abc123" };
     const fetchMock = createFetchMock().mockResolvedValue(
       geminiResponse(JSON.stringify([invalidJob])),
     );
     vi.stubGlobal("fetch", fetchMock);
+    const { logger, calls } = createCapturingLogger();
 
-    const extractor = new GeminiExtractor("test-key");
+    const extractor = new GeminiExtractor("test-key", undefined, logger);
+    const jobs = await extractor.extractJobs([jobCards[0]], SOURCE_URL);
 
-    await expect(extractor.extractJobs([jobCards[0]], SOURCE_URL)).rejects.toThrow(/id/);
+    expect(jobs).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const droppedLog = calls.find((call) => call.msg === "dropped_invalid_job");
+    expect(String(droppedLog?.fields?.reason)).toMatch(/id/);
   });
 
   it("fails fast on API errors without corrective retries", async () => {
@@ -334,7 +328,7 @@ describe("GeminiExtractor.extractJobs", () => {
     const extractor = new GeminiExtractor("test-key", undefined, logger);
     await extractor.extractJobs([jobCards[0], jobCards[1]], SOURCE_URL);
 
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0].level).toBe("info");
     expect(calls[0].fields).toMatchObject({
       batchIndex: 0,
