@@ -1,7 +1,7 @@
 import { loadConfig, type LinkedInQuery, type GupySearchConfig } from "./config.js";
 import { LinkedInSource } from "./linkedin.js";
 import { GupySource } from "./gupy.js";
-import { PlaywrightScraper } from "./playwright-scraper.js";
+import { PlaywrightScraper, GupyPlaywrightScraper } from "./playwright-scraper.js";
 import { run } from "./run.js";
 import { FileSeenStore } from "./seen.js";
 import { StubSource } from "./source.js";
@@ -12,7 +12,6 @@ import {
   type TriageProvider,
   type TriageResult,
 } from "./triage.js";
-import { HttpClient, createGupyHttpClient } from "./http-client.js";
 import { createLogger } from "./logger.js";
 
 try {
@@ -48,8 +47,6 @@ if (config.secrets.geminiApiKey) {
   };
 }
 
-const httpClient = createGupyHttpClient();
-
 let sources: Source[] = [];
 const liCookie = config.secrets.liCookie;
 const linkedInQueries = config.queries.filter(
@@ -70,9 +67,10 @@ const gupyQueries = config.queries.filter(
 );
 const dryRun = process.env.GUPY_DRY_RUN === "true";
 if (gupyQueries.length > 0) {
+  const gupyScraper = new GupyPlaywrightScraper();
   for (const query of gupyQueries) {
     sources.push(
-      new GupySource(query, httpClient, logger.child({ source: "gupy", profile: query.profiles[0]?.name }))
+      new GupySource(query, gupyScraper, logger.child({ source: "gupy", profile: query.profiles[0]?.name }))
     );
   }
 }
