@@ -130,7 +130,7 @@ export class PlaywrightScraper implements LinkedInScraper {
     const buildDiagnostic = (
       event: NavigationDiagnostic["event"],
       error?: unknown,
-    ): NavigationDiagnostic => {
+    ): Promise<NavigationDiagnostic> => {
       const finalUrl = page?.url() ?? url;
       const record: NavigationDiagnostic = {
         timestamp: new Date().toISOString(),
@@ -155,7 +155,7 @@ export class PlaywrightScraper implements LinkedInScraper {
           runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
         },
       };
-      if (page) record.title = await page.title().catch(() => \"(indisponível)\");
+      if (page) record.title = await page.title().catch(() => "(indisponível)");
       if (error instanceof Error) {
         record.error = {
           name: error.name,
@@ -214,7 +214,7 @@ export class PlaywrightScraper implements LinkedInScraper {
       try {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       } catch (err) {
-        const diagnostic = buildDiagnostic("navigation_failed", err);
+        const diagnostic = await buildDiagnostic("navigation_failed", err);
         await persistDiagnostic(diagnostic);
         const motivo = classifyGotoError(err);
         if (motivo) throw new Error(motivo, { cause: err });
@@ -223,11 +223,11 @@ export class PlaywrightScraper implements LinkedInScraper {
 
       if (isLoginUrl(page.url())) {
         const err = new Error("cookie de sessão do LinkedIn expirado ou inválido");
-        await persistDiagnostic(buildDiagnostic("navigation_failed", err));
+        await persistDiagnostic(await buildDiagnostic("navigation_failed", err));
         throw err;
       }
 
-      await persistDiagnostic(buildDiagnostic("navigation_succeeded"));
+      await persistDiagnostic(await buildDiagnostic("navigation_succeeded"));
       const cards = await this.extractPosts(page);
 
       const activityIds: string[] = [];
