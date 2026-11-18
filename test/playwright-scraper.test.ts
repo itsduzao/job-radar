@@ -52,6 +52,7 @@ function makePage() {
 function mountScraper(page: ReturnType<typeof makePage>["page"]) {
   const context = {
     addCookies: vi.fn().mockResolvedValue(undefined),
+    cookies: vi.fn().mockResolvedValue([{ name: "li_at", expires: -1 }]),
     newPage: vi.fn().mockResolvedValue(page),
   };
   const browser = {
