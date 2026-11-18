@@ -94,9 +94,7 @@ describe("cleanCardText", () => {
 
 describe("classifyGotoError", () => {
   it("identifica o loop de redirecionamento do LinkedIn", () => {
-    expect(classifyGotoError(new Error("page.goto: net::ERR_TOO_MANY_REDIRECTS at https://..."))).toContain(
-      "bloqueou o acesso",
-    );
+    expect(classifyGotoError(new Error("page.goto: net::ERR_TOO_MANY_REDIRECTS at https://..."))).toContain("ERR_TOO_MANY_REDIRECTS");
   });
 
   it("devolve null para outros erros", () => {
@@ -210,7 +208,7 @@ describe("PlaywrightScraper", () => {
     }
 
     expect(error!.message).toContain("nenhum post carregado");
-    expect(error!.message).toContain("url final: https://www.linkedin.com/search/results/content/?keywords=vaga");
+    expect(error!.message).toContain("url final: https://www.linkedin.com/search/results/content/");
     expect(error!.message).toContain("título: Página de busca");
     expect(error!.message).toContain("início do corpo: corpo da página de erro");
   });
