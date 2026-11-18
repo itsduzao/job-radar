@@ -20,10 +20,23 @@ export interface JobExtractor {
   extractJobs(htmlChunks: string[], sourceUrl: string): Promise<ExtractedJob[]>;
 }
 
+export interface GeminiPricing {
+  inputCostPerMillionUsd: number;
+  outputCostPerMillionUsd: number;
+}
+
 const DEFAULT_MODEL = "gemini-1.5-flash";
 const DEFAULT_MAX_TOKENS = 8000;
 const DEFAULT_BATCH_SIZE = 10;
+const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_CORRECTIVE_RETRIES = 2;
+
+// Public `gemini-1.5-flash` pricing (USD per million tokens), used when the
+// operator does not override GEMINI_INPUT_COST_PER_MILLION / GEMINI_OUTPUT_COST_PER_MILLION.
+export const DEFAULT_GEMINI_PRICING: GeminiPricing = {
+  inputCostPerMillionUsd: 0.075,
+  outputCostPerMillionUsd: 0.3,
+};
 
 const WORKPLACE_TYPES = ["remote", "onSite", "hybrid", "unknown"] as const;
 const JOB_TYPES = ["internship", "trainee", "effective", "talent_pool", "unknown"] as const;
@@ -53,11 +66,29 @@ interface GeminiResponse {
   usageMetadata?: GeminiUsageMetadata;
 }
 
+interface DroppedJob {
+  index: number;
+  reason: string;
+}
+
+interface NormalizedJobs {
+  jobs: ExtractedJob[];
+  dropped: DroppedJob[];
+}
+
+interface BatchResult extends NormalizedJobs {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 /** Thrown when the model answered, but the answer is not usable output. */
 class InvalidExtractionError extends Error {}
 
 /** Thrown when the Gemini API itself fails (transport, auth, quota). */
 class GeminiApiError extends Error {}
+
+/** Thrown when a single Gemini call exceeds GEMINI_TIMEOUT_MS. */
+class GeminiTimeoutError extends Error {}
 
 let promptCache: PromptTemplate | undefined;
 
@@ -94,6 +125,10 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError");
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -105,6 +140,11 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 function positiveIntFromEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function positiveNumberFromEnv(name: string, fallback: number): number {
+  const parsed = Number.parseFloat(process.env[name] ?? "");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -134,40 +174,43 @@ function parseJobsJson(text: string): unknown {
   }
 }
 
-function requireString(value: unknown, field: string, index: number): string {
-  if (typeof value !== "string") {
-    throw new InvalidExtractionError(`job[${index}].${field} ausente ou não é string`);
-  }
-  return value;
-}
-
-function validateJob(value: unknown, index: number): ExtractedJob {
+/**
+ * Normalizes one raw model entry. Returns a job, or a drop reason when the
+ * entry cannot be used for dedupe/digest (missing/invalid id or title).
+ * Everything else is defensively coerced so one bad field never sinks a batch.
+ */
+function normalizeJob(value: unknown, index: number): ExtractedJob | DroppedJob {
   if (!isRecord(value)) {
-    throw new InvalidExtractionError(`job[${index}] não é um objeto`);
+    return { index, reason: `job[${index}] não é um objeto` };
   }
 
-  const id = requireString(value.id, "id", index);
-  if (!/^\d+$/.test(id)) {
-    throw new InvalidExtractionError(`job[${index}].id deve conter apenas dígitos`);
-  }
-  const title = requireString(value.title, "title", index);
-  const company = requireString(value.company, "company", index);
-  const location = requireString(value.location, "location", index);
-  const publishedDate = requireString(value.publishedDate, "publishedDate", index);
-  const description = requireString(value.description, "description", index);
-  const url = requireString(value.url, "url", index);
-  if (url.length === 0) {
-    throw new InvalidExtractionError(`job[${index}].url está vazia`);
+  const id = value.id;
+  if (typeof id !== "string" || !/^\d+$/.test(id)) {
+    return { index, reason: `job[${index}].id ausente ou inválido (esperado apenas dígitos)` };
   }
 
-  const workplaceType = requireString(value.workplaceType, "workplaceType", index);
-  if (!isWorkplaceType(workplaceType)) {
-    throw new InvalidExtractionError(`job[${index}].workplaceType inválido: ${workplaceType}`);
+  const title = value.title;
+  if (typeof title !== "string" || title.trim().length === 0) {
+    return { index, reason: `job[${index}].title ausente ou vazio` };
   }
-  const jobType = requireString(value.jobType, "jobType", index);
-  if (!isJobType(jobType)) {
-    throw new InvalidExtractionError(`job[${index}].jobType inválido: ${jobType}`);
-  }
+
+  const company = typeof value.company === "string" ? value.company : "";
+  const location = typeof value.location === "string" ? value.location : "";
+  const description = typeof value.description === "string" ? value.description : "";
+
+  const workplaceType =
+    typeof value.workplaceType === "string" && isWorkplaceType(value.workplaceType)
+      ? value.workplaceType
+      : "unknown";
+
+  const jobType =
+    typeof value.jobType === "string" && isJobType(value.jobType) ? value.jobType : "unknown";
+
+  const rawUrl = typeof value.url === "string" ? value.url : "";
+  const url = rawUrl.includes(`/job/${id}`) ? rawUrl : `https://portal.gupy.io/job/${id}`;
+
+  const rawPublishedDate = typeof value.publishedDate === "string" ? value.publishedDate : "";
+  const publishedDate = Number.isNaN(Date.parse(rawPublishedDate)) ? "unknown" : rawPublishedDate;
 
   return {
     id,
@@ -182,17 +225,50 @@ function validateJob(value: unknown, index: number): ExtractedJob {
   };
 }
 
-function validateJobs(value: unknown): ExtractedJob[] {
+function isDroppedJob(value: ExtractedJob | DroppedJob): value is DroppedJob {
+  return "reason" in value;
+}
+
+function normalizeJobs(value: unknown): NormalizedJobs {
   if (!Array.isArray(value)) {
     throw new InvalidExtractionError("a resposta não é um JSON array");
   }
-  return value.map((item, index) => validateJob(item, index));
+
+  const jobs: ExtractedJob[] = [];
+  const dropped: DroppedJob[] = [];
+  value.forEach((item, index) => {
+    const normalized = normalizeJob(item, index);
+    if (isDroppedJob(normalized)) {
+      dropped.push(normalized);
+    } else {
+      jobs.push(normalized);
+    }
+  });
+
+  return { jobs, dropped };
+}
+
+/**
+ * Pure token-cost calculation. Pricing is USD per million tokens so it can be
+ * fed straight from GEMINI_*_COST_PER_MILLION environment overrides.
+ */
+export function estimateCostUsd(
+  inputTokens: number,
+  outputTokens: number,
+  pricing: GeminiPricing = DEFAULT_GEMINI_PRICING,
+): number {
+  return (
+    (inputTokens / 1_000_000) * pricing.inputCostPerMillionUsd +
+    (outputTokens / 1_000_000) * pricing.outputCostPerMillionUsd
+  );
 }
 
 export class GeminiExtractor implements JobExtractor {
   private readonly model: string;
   private readonly maxOutputTokens: number;
   private readonly batchSize: number;
+  private readonly timeoutMs: number;
+  private readonly pricing: GeminiPricing;
   private readonly logger: Logger;
 
   constructor(
@@ -206,6 +282,17 @@ export class GeminiExtractor implements JobExtractor {
       DEFAULT_MAX_TOKENS,
     );
     this.batchSize = positiveIntFromEnv("GEMINI_EXTRACTION_BATCH_SIZE", DEFAULT_BATCH_SIZE);
+    this.timeoutMs = positiveIntFromEnv("GEMINI_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
+    this.pricing = {
+      inputCostPerMillionUsd: positiveNumberFromEnv(
+        "GEMINI_INPUT_COST_PER_MILLION",
+        DEFAULT_GEMINI_PRICING.inputCostPerMillionUsd,
+      ),
+      outputCostPerMillionUsd: positiveNumberFromEnv(
+        "GEMINI_OUTPUT_COST_PER_MILLION",
+        DEFAULT_GEMINI_PRICING.outputCostPerMillionUsd,
+      ),
+    };
     this.logger = logger ?? noopLogger;
   }
 
@@ -213,16 +300,44 @@ export class GeminiExtractor implements JobExtractor {
     const template = loadPromptTemplate();
     const jobs: ExtractedJob[] = [];
     const batches = chunkArray(htmlChunks, this.batchSize);
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batchJobs = await this.extractBatch(
-        batches[batchIndex],
-        sourceUrl,
-        template,
-        batchIndex,
-      );
-      jobs.push(...batchJobs);
+
+    let totalDropped = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let success = true;
+
+    try {
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = await this.extractBatch(
+          batches[batchIndex],
+          sourceUrl,
+          template,
+          batchIndex,
+        );
+        jobs.push(...batch.jobs);
+        totalDropped += batch.dropped.length;
+        totalInputTokens += batch.inputTokens;
+        totalOutputTokens += batch.outputTokens;
+      }
+      return jobs;
+    } catch (err) {
+      success = false;
+      throw err;
+    } finally {
+      const totalTokens = totalInputTokens + totalOutputTokens;
+      this.logger.info("gupy extraction run summary", {
+        totalBatches: batches.length,
+        totalJobs: jobs.length,
+        totalDropped,
+        totalTokens,
+        estimatedCostUsd: estimateCostUsd(
+          totalInputTokens,
+          totalOutputTokens,
+          this.pricing,
+        ),
+        success,
+      });
     }
-    return jobs;
   }
 
   private async extractBatch(
@@ -230,7 +345,7 @@ export class GeminiExtractor implements JobExtractor {
     sourceUrl: string,
     template: PromptTemplate,
     batchIndex: number,
-  ): Promise<ExtractedJob[]> {
+  ): Promise<BatchResult> {
     const startedAt = Date.now();
     const basePrompt = renderUserPrompt(template.user, chunk.join("\n---\n"), sourceUrl);
     let lastReason = "a resposta anterior não passou na validação";
@@ -246,6 +361,7 @@ export class GeminiExtractor implements JobExtractor {
           batchIndex,
           cardsIn: chunk.length,
           jobsOut: 0,
+          dropped: 0,
           latencyMs: Date.now() - startedAt,
           retryCount: attempt,
           success: false,
@@ -255,11 +371,22 @@ export class GeminiExtractor implements JobExtractor {
       }
 
       try {
-        const jobs = validateJobs(parseJobsJson(response.text));
+        const { jobs, dropped } = normalizeJobs(parseJobsJson(response.text));
+        for (const drop of dropped) {
+          this.logger.warn("dropped_invalid_job", {
+            batchIndex,
+            index: drop.index,
+            reason: drop.reason,
+          });
+        }
+
+        const inputTokens = response.usage?.promptTokenCount ?? 0;
+        const outputTokens = response.usage?.candidatesTokenCount ?? 0;
         this.logger.info("gupy extraction batch succeeded", {
           batchIndex,
           cardsIn: chunk.length,
           jobsOut: jobs.length,
+          dropped: dropped.length,
           ...(response.usage?.promptTokenCount === undefined
             ? {}
             : { inputTokens: response.usage.promptTokenCount }),
@@ -270,7 +397,7 @@ export class GeminiExtractor implements JobExtractor {
           retryCount: attempt,
           success: true,
         });
-        return jobs;
+        return { jobs, dropped, inputTokens, outputTokens };
       } catch (err) {
         lastReason = errorMessage(err);
       }
@@ -283,6 +410,7 @@ export class GeminiExtractor implements JobExtractor {
       batchIndex,
       cardsIn: chunk.length,
       jobsOut: 0,
+      dropped: 0,
       latencyMs: Date.now() - startedAt,
       retryCount: MAX_CORRECTIVE_RETRIES,
       success: false,
@@ -296,15 +424,29 @@ export class GeminiExtractor implements JobExtractor {
     user: string,
   ): Promise<{ text: string; usage?: GeminiUsageMetadata }> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: { maxOutputTokens: this.maxOutputTokens },
-      }),
-    });
+    const signal = AbortSignal.timeout(this.timeoutMs);
+
+    let res: Awaited<ReturnType<typeof fetch>>;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig: { maxOutputTokens: this.maxOutputTokens },
+        }),
+        signal,
+      });
+    } catch (err) {
+      if (signal.aborted || isAbortError(err)) {
+        throw new GeminiTimeoutError(
+          `Gemini generateContent timed out after ${this.timeoutMs}ms`,
+        );
+      }
+      throw err;
+    }
+
     if (!res.ok) {
       throw new GeminiApiError(`Gemini generateContent failed with status ${res.status}`);
     }
