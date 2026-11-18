@@ -30,10 +30,22 @@ export interface Secrets {
   geminiApiKey?: string;
 }
 
+export interface GupyLlmConfig {
+  enabled: boolean;
+  model: string;
+  maxOutputTokens: number;
+  batchSize: number;
+}
+
 export interface Config {
   queries: Query[];
   secrets: Secrets;
+  gupyLlm: GupyLlmConfig;
 }
+
+const DEFAULT_GEMINI_EXTRACTION_MODEL = "gemini-1.5-flash";
+const DEFAULT_GEMINI_EXTRACTION_MAX_TOKENS = 8000;
+const DEFAULT_GEMINI_EXTRACTION_BATCH_SIZE = 10;
 
 const DEFAULT_GUPY_PROFILES: GupySearchProfile[] = [
   {
@@ -99,9 +111,45 @@ function buildGupyQueries(env: NodeJS.ProcessEnv): GupySearchConfig[] {
   ];
 }
 
+function positiveIntFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function buildGupyLlmConfig(env: NodeJS.ProcessEnv): GupyLlmConfig {
+  const enabled = env.GUPY_USE_LLM_EXTRACTION === "true";
+  const apiKey = env.GEMINI_API_KEY?.trim();
+
+  if (enabled && !apiKey) {
+    throw new Error(
+      "GUPY_USE_LLM_EXTRACTION=true exige GEMINI_API_KEY definido (extração via Gemini)",
+    );
+  }
+
+  return {
+    enabled,
+    model: env.GEMINI_EXTRACTION_MODEL?.trim() || DEFAULT_GEMINI_EXTRACTION_MODEL,
+    maxOutputTokens: positiveIntFromEnv(
+      env,
+      "GEMINI_EXTRACTION_MAX_TOKENS",
+      DEFAULT_GEMINI_EXTRACTION_MAX_TOKENS,
+    ),
+    batchSize: positiveIntFromEnv(
+      env,
+      "GEMINI_EXTRACTION_BATCH_SIZE",
+      DEFAULT_GEMINI_EXTRACTION_BATCH_SIZE,
+    ),
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const gupyQueries = buildGupyQueries(env);
   const allQueries: Query[] = [...QUERIES, ...gupyQueries];
+  const gupyLlm = buildGupyLlmConfig(env);
 
   if (gupyQueries.length > 0 && !env.LI_COOKIE) {
     console.warn("[job-radar] LI_COOKIE ausente; LinkedIn source será desativado");
@@ -115,6 +163,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       telegramChatId: env.TELEGRAM_CHAT_ID,
       geminiApiKey: env.GEMINI_API_KEY,
     },
+    gupyLlm,
   };
 }
 
