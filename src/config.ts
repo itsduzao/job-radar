@@ -66,11 +66,8 @@ const DEFAULT_GUPY_PROFILES: GupySearchProfile[] = [
 const DEFAULT_GUPY_TERMS = [
   "estagio",
   "estagiaria",
-  "estágio",
-  "estagiária",
   "jr",
   "junior",
-  "júnior",
   "desenvolvedor",
   "dev",
   "backend",
