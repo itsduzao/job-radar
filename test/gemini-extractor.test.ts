@@ -29,7 +29,11 @@ interface GeminiRequestInit {
 interface GeminiPromptBody {
   systemInstruction: { parts: { text: string }[] };
   contents: { role?: string; parts: { text: string }[] }[];
-  generationConfig: { maxOutputTokens?: number };
+  generationConfig: {
+    maxOutputTokens?: number;
+    temperature?: number;
+    responseMimeType?: string;
+  };
 }
 
 interface GeminiUsage {
@@ -134,6 +138,8 @@ describe("GeminiExtractor.extractJobs", () => {
 
     const body = requestBody(fetchMock);
     expect(body.generationConfig.maxOutputTokens).toBe(8000);
+    expect(body.generationConfig.temperature).toBe(0);
+    expect(body.generationConfig.responseMimeType).toBe("application/json");
     expect(body.systemInstruction.parts[0].text).toContain(
       "extrator de vagas do portal.gupy.io",
     );

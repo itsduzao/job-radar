@@ -453,7 +453,11 @@ export class GeminiExtractor implements JobExtractor {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
-            generationConfig: { maxOutputTokens: this.maxOutputTokens },
+            generationConfig: {
+              maxOutputTokens: this.maxOutputTokens,
+              temperature: 0,
+              responseMimeType: "application/json",
+            },
           }),
           signal,
         });
