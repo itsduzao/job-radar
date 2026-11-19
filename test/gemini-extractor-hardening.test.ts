@@ -345,7 +345,7 @@ describe("GeminiExtractor hardening: aggregated metrics", () => {
       totalDropped: 3,
       totalTokens: 450,
     });
-    expect(summaries[0].fields?.estimatedCostUsd).toBeCloseTo(0.0000675, 12);
+    expect(summaries[0].fields?.estimatedCostUsd).toBeCloseTo(0.000465, 12);
   });
 
   it("uses configurable pricing for the estimated cost", async () => {
@@ -398,7 +398,7 @@ describe("GeminiExtractor hardening: constructor options", () => {
 
 describe("estimateCostUsd", () => {
   it("computes cost from per-million token pricing independently of the extractor", () => {
-    expect(estimateCostUsd(1_000_000, 1_000_000)).toBeCloseTo(0.375, 12);
+    expect(estimateCostUsd(1_000_000, 1_000_000)).toBeCloseTo(2.8, 12);
     expect(
       estimateCostUsd(2_000_000, 500_000, {
         inputCostPerMillionUsd: 0.1,

@@ -50,10 +50,10 @@ export interface JobExtractor {
 }
 ```
 
-- `GeminiExtractor` lê o prompt versionado em `src/prompts/gupy-extraction-v1.txt` (seções `--- SYSTEM ---` e `--- USER ---`) e usa `GEMINI_EXTRACTION_MODEL` (default `gemini-1.5-flash`).
+- `GeminiExtractor` lê o prompt versionado em `src/prompts/gupy-extraction-v1.txt` (seções `--- SYSTEM ---` e `--- USER ---`) e usa `GEMINI_EXTRACTION_MODEL` (default `gemini-3.5-flash-lite`).
 - **Chunking**: `htmlChunks` é opaco para o extrator. Os chunks são concatenados com `\n---\n` e agrupados em lotes de `GEMINI_EXTRACTION_BATCH_SIZE` (default 10), uma chamada sequencial por lote. O scraper decide se cada chunk é o `outerHTML` de um card (modo padrão, tokens limitados) ou o HTML da página inteira (preserva `__NEXT_DATA__` e, portanto, descrições).
 - **Validação e normalização**: a resposta precisa ser um JSON array (cercas de markdown são removidas). JSON inválido ou não-array dispara até 2 retentativas corretivas (3 tentativas no total), com o motivo anexado ao prompt. Cada vaga é normalizada isoladamente: `workplaceType`/`jobType` fora do enum viram `"unknown"`; `company`, `location` e `description` ausentes ou não-string viram `""`; `url` que não contém `/job/{id}` vira a canônica `https://portal.gupy.io/job/{id}`; `publishedDate` que não parseia vira `"unknown"`. Só são descartadas as vagas sem `id` válido (somente dígitos) ou sem `title` (incluindo entradas que não são objeto), com log `dropped_invalid_job` — o lote continua.
-- **Falhas de transporte**: erro de API, quota ou timeout não é retentado pelo extrator; o lote falha e o scraper pode cair no fallback legado.
+- **Falhas de transporte**: 408/429/5xx são retentados até 2 vezes com backoff (250ms, 500ms); se persistirem, o lote falha e o scraper cai no fallback legado. Timeout e demais 4xx não são retentados.
 - **Timeout e custo**: `GEMINI_TIMEOUT_MS` (default 30000) aborta a chamada; o resumo por run loga `totalBatches`, `totalJobs`, `totalDropped`, `totalTokens`, `estimatedCostUsd` e `success` (preços sobrescrevíveis por `GEMINI_INPUT_COST_PER_MILLION`/`GEMINI_OUTPUT_COST_PER_MILLION`).
 - `GEMINI_EXTRACTION_MAX_TOKENS` (default 8000) limita a saída por chamada.
 
@@ -79,7 +79,7 @@ O scraper converte cada `ExtractedJob` no mesmo `Post` do caminho legado: `id: "
 
 ### Negativas / limites conhecidos
 
-- **Custo e latência**: cada lote é uma chamada de rede sequencial. Uma página de 12 cards consome aproximadamente 12k tokens de entrada e 6–7k de saída (~US$ 0,003 no `gemini-1.5-flash`); ~50 cards ficam em ~US$ 0,01. O custo cresce por página processada e o run default tem 2 perfis × 13 termos = 26 buscas, então medir com os logs e limitar `GUPY_MAX_PAGES` importa mais do que o número por página.
+- **Custo e latência**: cada lote é uma chamada de rede sequencial. Uma página de 12 cards consome aproximadamente 23k tokens de entrada e 1,8k de saída (~US$ 0,0115 no `gemini-3.5-flash-lite`); ~50 cards ficam em ~US$ 0,05. O custo cresce por página processada e o run default tem 2 perfis × 13 termos = 26 buscas, então medir com os logs e limitar `GUPY_MAX_PAGES` importa mais do que o número por página.
 - **Descrições no modo card-only**: cards não têm descrição. Enviar apenas `outerHTML` de cards produz `description` vazia; para descrições completas é preciso enviar o HTML da página (ou o bloco `__NEXT_DATA__`) como chunk. As duas composições são permitidas pelo contrato, mas o modo card-only é degradado e exige follow-up (detalhe da vaga ou envio do payload estruturado).
 - **Não determinismo**: atualizações do modelo podem mudar a saída. Mitigação: prompt versionado, fixtures e execução de avaliação antes de trocar de modelo/prompt.
 - **Qualidade dependente do modelo**: a normalização defensiva evita perder o lote, mas não corrige semântica errada (ex.: talent pool classificado como estágio). Mitigação: fixtures, prompt versionado e shadow mode.

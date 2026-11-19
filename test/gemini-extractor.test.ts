@@ -129,7 +129,7 @@ describe("GeminiExtractor.extractJobs", () => {
 
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=test-key",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=test-key",
     );
 
     const body = requestBody(fetchMock);
@@ -277,7 +277,7 @@ describe("GeminiExtractor.extractJobs", () => {
     expect(String(droppedLog?.fields?.reason)).toMatch(/id/);
   });
 
-  it("fails fast on API errors without corrective retries", async () => {
+  it("retries transient 5xx errors and fails after exhausting attempts", async () => {
     const fetchMock = createFetchMock().mockResolvedValue({
       ok: false,
       status: 500,
@@ -288,6 +288,33 @@ describe("GeminiExtractor.extractJobs", () => {
     const extractor = new GeminiExtractor("test-key");
 
     await expect(extractor.extractJobs([jobCards[0]], SOURCE_URL)).rejects.toThrow("500");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a transient 503 and succeeds on the next attempt", async () => {
+    const fetchMock = createFetchMock()
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) })
+      .mockResolvedValueOnce(jobsResponse(extractedJobs));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const extractor = new GeminiExtractor("test-key");
+    const jobs = await extractor.extractJobs([jobCards[0]], SOURCE_URL);
+
+    expect(jobs).toEqual(extractedJobs);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry non-transient API errors such as 404", async () => {
+    const fetchMock = createFetchMock().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const extractor = new GeminiExtractor("test-key");
+
+    await expect(extractor.extractJobs([jobCards[0]], SOURCE_URL)).rejects.toThrow("404");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

@@ -1,3 +1,5 @@
+import { DEFAULT_GEMINI_EXTRACTION_MODEL } from "./gemini-extractor.js";
+
 export type SourceId = "linkedin" | "gupy";
 export type SortBy = "date_posted";
 
@@ -43,7 +45,6 @@ export interface Config {
   gupyLlm: GupyLlmConfig;
 }
 
-const DEFAULT_GEMINI_EXTRACTION_MODEL = "gemini-1.5-flash";
 const DEFAULT_GEMINI_EXTRACTION_MAX_TOKENS = 8000;
 const DEFAULT_GEMINI_EXTRACTION_BATCH_SIZE = 10;
 

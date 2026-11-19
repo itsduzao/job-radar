@@ -28,22 +28,22 @@ Guia de operação para o job-radar com suporte a LinkedIn e Gupy.
 |----------|---------|-----------|
 | `GUPY_USE_LLM_EXTRACTION` | `false` | Ativa a extração de vagas via Gemini (substitui os seletores CSS/XPath) |
 | `GUPY_LLM_SHADOW` | `false` | Modo shadow (ticket 06): roda LLM e seletores, usa os seletores como verdade e loga divergências |
-| `GEMINI_EXTRACTION_MODEL` | `gemini-1.5-flash` | Modelo Gemini usado na extração |
+| `GEMINI_EXTRACTION_MODEL` | `gemini-3.5-flash-lite` | Modelo Gemini usado na extração |
 | `GEMINI_EXTRACTION_MAX_TOKENS` | `8000` | Máximo de tokens de saída por chamada (inteiro positivo) |
 | `GEMINI_EXTRACTION_BATCH_SIZE` | `10` | Cards de vaga enviados por chamada ao Gemini (inteiro positivo) |
 | `GEMINI_TIMEOUT_MS` | `30000` | Timeout por chamada ao Gemini em ms (inteiro positivo); estourou, o lote falha e cai no fallback/legacy |
-| `GEMINI_INPUT_COST_PER_MILLION` | `0.075` | Custo em US$ por 1M tokens de entrada, usado no log `estimatedCostUsd` |
-| `GEMINI_OUTPUT_COST_PER_MILLION` | `0.30` | Custo em US$ por 1M tokens de saída, usado no log `estimatedCostUsd` |
+| `GEMINI_INPUT_COST_PER_MILLION` | `0.30` | Custo em US$ por 1M tokens de entrada, usado no log `estimatedCostUsd` |
+| `GEMINI_OUTPUT_COST_PER_MILLION` | `2.50` | Custo em US$ por 1M tokens de saída, usado no log `estimatedCostUsd` |
 
 Com `GUPY_USE_LLM_EXTRACTION=true`, `GEMINI_API_KEY` passa a ser **obrigatória**: o `loadConfig` falha na inicialização se ela estiver ausente ou vazia. Com a flag desligada, a chave continua opcional (usada apenas pela triagem). **O modo shadow também precisa da chave**: com `GUPY_LLM_SHADOW=true` e sem `GEMINI_API_KEY`, o processo loga um `warn` e segue só com seletores (não quebra). Se `GUPY_USE_LLM_EXTRACTION=true` e `GUPY_LLM_SHADOW=true` ao mesmo tempo, vale o modo LLM puro (shadow é ignorado). Valores inválidos, zero ou negativos em `GEMINI_EXTRACTION_MAX_TOKENS`, `GEMINI_EXTRACTION_BATCH_SIZE` ou `GEMINI_TIMEOUT_MS` caem no default.
 
 #### Custo estimado
 
-Referência de preço do `gemini-1.5-flash` (lista, nov/2026): **US$ 0,075 por 1M tokens de entrada** e **US$ 0,30 por 1M tokens de saída**. O custo é dominado pelo volume de HTML enviado e pelas descrições devolvidas, não pelo número de chamadas.
+Referência de preço do `gemini-3.5-flash-lite` (lista, nov/2026): **US$ 0,30 por 1M tokens de entrada** e **US$ 2,50 por 1M tokens de saída**. O custo é dominado pelo volume de HTML enviado e pelas descrições devolvidas, não pelo número de chamadas.
 
-- Uma página de 12 cards ≈ 12k tokens de entrada + 6–7k de saída ≈ **US$ 0,003**.
-- ~50 cards (5 lotes com `batch=10`) ≈ **US$ 0,01**.
-- O run default tem 2 perfis × 13 termos = **26 buscas**; o custo cresce por página processada. Com 1 página por busca o total fica na casa de US$ 0,08–0,15; com muitas páginas (`GUPY_MAX_PAGES`) pode passar de US$ 1. Acompanhe `inputTokens`/`outputTokens` nos logs e ajuste `GUPY_MAX_PAGES` antes de ligar a flag em produção.
+- Uma página de 12 cards ≈ 23k tokens de entrada + 1,8k de saída ≈ **US$ 0,0115** (medido em 2026-11-19).
+- ~50 cards (5 lotes com `batch=10`) ≈ **US$ 0,05**.
+- O run default tem 2 perfis × 13 termos = **26 buscas**; o custo cresce por página processada. Com 1 página por busca o total fica na casa de US$ 0,30; com muitas páginas (`GUPY_MAX_PAGES`) pode passar de US$ 1. Acompanhe `inputTokens`/`outputTokens` nos logs e ajuste `GUPY_MAX_PAGES` antes de ligar a flag em produção.
 - **Batch menor** (ex.: 5) aumenta o número de chamadas, o overhead do prompt e a latência; **batch maior** (ex.: 20) reduz chamadas, mas aproxima a saída do teto de `GEMINI_EXTRACTION_MAX_TOKENS`. O total de tokens de entrada muda pouco — o ganho é latência/requests.
 - **`GEMINI_EXTRACTION_MAX_TOKENS`** limita a saída, não o gasto diretamente. Baixo demais trunca o JSON, o que dispara as 2 retentativas corretivas e **triplica** o custo daquele lote. O default 8000 acomoda ~10–15 vagas com descrição.
 - O modo card-only é mais barato (sem descrições); enviar o HTML da página inteira para preservar `__NEXT_DATA__` aumenta a entrada por chamada. Meça os dois antes de escolher o default.
@@ -111,7 +111,7 @@ await browser.close();
 **Limite de tokens / saída truncada**
 - Sintoma: JSON incompleto, `Unexpected end of JSON input`, lote sempre falhando no mesmo ponto.
 - Ação: diminua o batch; no modo página inteira, considere enviar só os cards ou o bloco `__NEXT_DATA__`; aumente `GEMINI_EXTRACTION_MAX_TOKENS` se as descrições forem longas.
-- Falha de quota/429 do Gemini não é retentada pelo extrator; o lote cai no fallback por seletores. Verifique a chave e o billing.
+- Falha de quota/429 ou 5xx do Gemini é retentada até 2 vezes com backoff; se persistir, o lote cai no fallback por seletores. Verifique a chave e o billing.
 
 **Talent pool (falso negativo)**
 - Sintoma: vaga "Banco de Talentos"/"Cadastro de Interesse" aparece como `internship`/`effective`.

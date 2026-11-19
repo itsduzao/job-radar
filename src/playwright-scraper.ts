@@ -10,8 +10,10 @@ const POST_SELECTOR = 'div[role="listitem"][componentkey^="update-card-focus"]';
 const ACTIVITY_ID_RE = /activityId["\\]*:\s*["\\]*(\d+)/g;
 const RESPONSE_URL_RE = /search\/results\/content|rsc-action\/actions\/pagination/;
 
-// Gupy selectors
-const GUPY_JOB_CARD_SELECTOR = '[data-testid="job-card"], .job-card, article[class*="job"]';
+// Gupy selectors. The card is the list item/article that wraps a job link: the
+// portal uses a class-less <li> with the link (and all card text) inside.
+const GUPY_JOB_CARD_SELECTOR =
+  'li:has(a[href*="/job/"]), article:has(a[href*="/job/"])';
 const GUPY_JOB_LINK_SELECTOR = 'a[href*="/job/"]';
 const GUPY_NEXT_PAGE_SELECTOR = 'button[aria-label="Próxima página"], a[rel="next"], button:has-text("Próxima")';
 const GUPY_LOAD_MORE_SELECTOR = 'button:has-text("Carregar mais"), button:has-text("Ver mais")';
@@ -436,49 +438,93 @@ export class GupyPlaywrightScraper implements GupyScraper {
   }
 
   private async extractJobs(page: Page): Promise<GupyJobCard[]> {
-    return page.$$eval(GUPY_JOB_CARD_SELECTOR, (cards) => {
-      // Real Gupy card hrefs are https://{company}.gupy.io/job/{base64url}, where
-      // the token decodes to {"jobId":<number>,"source":"gupy_portal"} (ADR-0004).
-      // Decode it so legacy ids match the numeric ids produced by the LLM path;
-      // otherwise keep the plain numeric match, else fall back to the raw href.
-      const legacyJobIdFromHref = (url: string): string | null => {
-        const token = /\/job\/([^/?#]+)/.exec(url)?.[1];
-        if (!token || /^\d+$/.test(token)) return null;
-        try {
-          const base64 = token.replaceAll("-", "+").replaceAll("_", "/");
-          const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-          const decoded: unknown = JSON.parse(atob(padded));
-          if (typeof decoded !== "object" || decoded === null || !("jobId" in decoded)) {
-            return null;
-          }
+    // Playwright serializes this callback and runs it inside the page, where
+    // module-scope bindings and bundler helpers (e.g. tsx/esbuild's __name) do
+    // not exist. Keep the callback self-contained: literal selectors only, no
+    // named inner functions. Id decoding happens back here in Node.
+    const cards = await page.$$eval(GUPY_JOB_CARD_SELECTOR, (elements) =>
+      elements
+        .map((card) => {
+          const linkEl = card.querySelector('a[href*="/job/"]');
+          const url = linkEl?.getAttribute("href") || "";
+
+          // Try various selectors for job details
+          const title =
+            card
+              .querySelector('[data-testid="job-title"], h2, h3, .job-title, [class*="title"]')
+              ?.textContent?.trim() || "";
+          const company =
+            card
+              .querySelector('[data-testid="company-name"], .company, [class*="company"], p')
+              ?.textContent?.trim() || "";
+          const location =
+            card
+              .querySelector('[data-testid="job-location"], .location, [class*="location"]')
+              ?.textContent?.trim() || "";
+          const workplaceType =
+            card
+              .querySelector('[data-testid="workplace-type"], .workplace, [class*="workplace"]')
+              ?.textContent?.trim() || "";
+          const jobType =
+            card
+              .querySelector('[data-testid="job-type"], .job-type, [class*="type"]')
+              ?.textContent?.trim() || "";
+          const publishedDate =
+            card
+              .querySelector('[data-testid="published-date"], .date, [class*="date"]')
+              ?.textContent?.trim() || new Date().toISOString();
+          const description =
+            card
+              .querySelector('[data-testid="job-description"], .description, [class*="description"]')
+              ?.textContent?.trim() || "";
+
+          return {
+            title,
+            company,
+            location,
+            workplaceType,
+            jobType,
+            publishedDate,
+            description,
+            url,
+          };
+        })
+        .filter((job) => job.title && job.url),
+    );
+
+    return cards.map((card) => ({
+      ...card,
+      id: this.legacyJobIdFromHref(card.url),
+    }));
+  }
+
+  /**
+   * Real card hrefs are https://{company}.gupy.io/job/{base64url}, where the
+   * token decodes to {"jobId":<number>,"source":"gupy_portal"} (ADR-0004).
+   * Decode it so legacy ids match the numeric ids produced by the LLM path;
+   * otherwise keep the plain numeric match, else fall back to the raw href.
+   * Runs in Node (not in the page) on purpose — see extractJobs.
+   */
+  private legacyJobIdFromHref(url: string): string {
+    const token = /\/job\/([^/?#]+)/.exec(url)?.[1];
+    if (token && !/^\d+$/.test(token)) {
+      try {
+        const decoded: unknown = JSON.parse(
+          Buffer.from(token, "base64url").toString("utf8"),
+        );
+        if (typeof decoded === "object" && decoded !== null && "jobId" in decoded) {
           const jobId = (decoded as { jobId: unknown }).jobId;
-          return typeof jobId === "number" && Number.isInteger(jobId) && jobId > 0
-            ? String(jobId)
-            : null;
-        } catch {
-          return null;
+          if (typeof jobId === "number" && Number.isInteger(jobId) && jobId > 0) {
+            return String(jobId);
+          }
         }
-      };
+      } catch {
+        // Not a base64 JSON token; fall through to the numeric/url fallbacks.
+      }
+    }
 
-      return cards.map(card => {
-        const linkEl = card.querySelector(GUPY_JOB_LINK_SELECTOR);
-        const url = linkEl?.getAttribute("href") || "";
-        const tokenJobId = legacyJobIdFromHref(url);
-        const jobIdMatch = url.match(/\/job\/(\d+)/);
-        const id = tokenJobId ?? (jobIdMatch ? jobIdMatch[1] : url);
-
-        // Try various selectors for job details
-        const title = card.querySelector('[data-testid="job-title"], h2, h3, .job-title, [class*="title"]')?.textContent?.trim() || "";
-        const company = card.querySelector('[data-testid="company-name"], .company, [class*="company"]')?.textContent?.trim() || "";
-        const location = card.querySelector('[data-testid="job-location"], .location, [class*="location"]')?.textContent?.trim() || "";
-        const workplaceType = card.querySelector('[data-testid="workplace-type"], .workplace, [class*="workplace"]')?.textContent?.trim() || "";
-        const jobType = card.querySelector('[data-testid="job-type"], .job-type, [class*="type"]')?.textContent?.trim() || "";
-        const publishedDate = card.querySelector('[data-testid="published-date"], .date, [class*="date"]')?.textContent?.trim() || new Date().toISOString();
-        const description = card.querySelector('[data-testid="job-description"], .description, [class*="description"]')?.textContent?.trim() || "";
-
-        return { id, title, company, location, workplaceType, jobType, publishedDate, description, url };
-      }).filter(job => job.title && job.url);
-    });
+    const numeric = /\/job\/(\d+)/.exec(url);
+    return numeric ? numeric[1] : url;
   }
 
   private async goToNextPage(page: Page): Promise<boolean> {

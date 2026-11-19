@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GupyPlaywrightScraper } from "../src/playwright-scraper.js";
 import { GupySource } from "../src/gupy.js";
@@ -21,7 +22,8 @@ const jobCards = JSON.parse(readFixture("job-cards-real.json")) as string[];
 
 const SOURCE_URL = "https://portal.gupy.io/job-search/term=estagio";
 const JOB_LINK_SELECTOR = 'a[href*="/job/"]';
-const LEGACY_CARD_SELECTOR = '[data-testid="job-card"], .job-card, article[class*="job"]';
+const LEGACY_CARD_SELECTOR =
+  'li:has(a[href*="/job/"]), article:has(a[href*="/job/"])';
 
 interface LegacyJob {
   id: string;
@@ -107,16 +109,26 @@ function makeGupyPage(overrides: Partial<GupyPageState> = {}) {
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     $$eval: vi.fn(
-      async (selector: string, callback?: (elements: unknown[]) => unknown) => {
+      async (
+        selector: string,
+        callback?: (elements: unknown[], arg?: unknown) => unknown,
+        arg?: unknown,
+      ) => {
         if (selector === JOB_LINK_SELECTOR) {
           const index = state.discoveryCalls;
           state.discoveryCalls += 1;
           return state.cardHtmlPages[index] ?? [];
         }
         if (state.legacyCards.length > 0) {
-          // Run the real production callback against the fake cards so the
-          // legacy id derivation is exercised end to end.
-          return callback?.(state.legacyCards);
+          // Run the real production callback the way Playwright does: serialize
+          // it and evaluate it in an isolated context, where module-scope
+          // bindings and bundler helpers do not exist. This is what catches
+          // leaks like __name / GUPY_*_SELECTOR inside $$eval callbacks.
+          const evaluate = runInNewContext(`(${callback?.toString()})`, {}) as (
+            elements: unknown[],
+            arg?: unknown,
+          ) => unknown;
+          return evaluate(state.legacyCards, arg);
         }
         return state.legacyJobs;
       },

@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.js";
 
 const LLM_DEFAULTS = {
   enabled: false,
-  model: "gemini-1.5-flash",
+  model: "gemini-3.5-flash-lite",
   maxOutputTokens: 8000,
   batchSize: 10,
 };

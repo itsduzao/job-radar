@@ -25,17 +25,22 @@ export interface GeminiPricing {
   outputCostPerMillionUsd: number;
 }
 
-const DEFAULT_MODEL = "gemini-1.5-flash";
+export const DEFAULT_GEMINI_EXTRACTION_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_MAX_TOKENS = 8000;
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_CORRECTIVE_RETRIES = 2;
+const MAX_TRANSPORT_RETRIES = 2;
+const TRANSPORT_RETRY_BASE_DELAY_MS = 250;
+const TRANSIENT_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
-// Public `gemini-1.5-flash` pricing (USD per million tokens), used when the
-// operator does not override GEMINI_INPUT_COST_PER_MILLION / GEMINI_OUTPUT_COST_PER_MILLION.
+// Public `gemini-3.5-flash-lite` list pricing (USD per million tokens), used
+// when the operator does not override GEMINI_INPUT_COST_PER_MILLION /
+// GEMINI_OUTPUT_COST_PER_MILLION. Checked against the provider price list in
+// 2026-11; override the env vars when it changes.
 export const DEFAULT_GEMINI_PRICING: GeminiPricing = {
-  inputCostPerMillionUsd: 0.075,
-  outputCostPerMillionUsd: 0.3,
+  inputCostPerMillionUsd: 0.3,
+  outputCostPerMillionUsd: 2.5,
 };
 
 const WORKPLACE_TYPES = ["remote", "onSite", "hybrid", "unknown"] as const;
@@ -287,7 +292,8 @@ export class GeminiExtractor implements JobExtractor {
     logger?: Logger,
     options?: GeminiExtractorOptions,
   ) {
-    this.model = model ?? process.env.GEMINI_EXTRACTION_MODEL ?? DEFAULT_MODEL;
+    this.model =
+      model ?? process.env.GEMINI_EXTRACTION_MODEL ?? DEFAULT_GEMINI_EXTRACTION_MODEL;
     this.maxOutputTokens =
       options?.maxOutputTokens ??
       positiveIntFromEnv("GEMINI_EXTRACTION_MAX_TOKENS", DEFAULT_MAX_TOKENS);
@@ -435,37 +441,55 @@ export class GeminiExtractor implements JobExtractor {
     user: string,
   ): Promise<{ text: string; usage?: GeminiUsageMetadata }> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
-    const signal = AbortSignal.timeout(this.timeoutMs);
 
-    let res: Awaited<ReturnType<typeof fetch>>;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: [{ role: "user", parts: [{ text: user }] }],
-          generationConfig: { maxOutputTokens: this.maxOutputTokens },
-        }),
-        signal,
-      });
-    } catch (err) {
-      if (signal.aborted || isAbortError(err)) {
-        throw new GeminiTimeoutError(
-          `Gemini generateContent timed out after ${this.timeoutMs}ms`,
+    for (let attempt = 0; attempt <= MAX_TRANSPORT_RETRIES; attempt++) {
+      const signal = AbortSignal.timeout(this.timeoutMs);
+
+      let res: Awaited<ReturnType<typeof fetch>>;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: user }] }],
+            generationConfig: { maxOutputTokens: this.maxOutputTokens },
+          }),
+          signal,
+        });
+      } catch (err) {
+        if (signal.aborted || isAbortError(err)) {
+          throw new GeminiTimeoutError(
+            `Gemini generateContent timed out after ${this.timeoutMs}ms`,
+          );
+        }
+        throw err;
+      }
+
+      if (res.ok) {
+        const data = (await res.json()) as GeminiResponse;
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (typeof text !== "string" || text.trim().length === 0) {
+          throw new InvalidExtractionError("a resposta do Gemini não contém texto");
+        }
+        return { text, usage: data.usageMetadata };
+      }
+
+      if (!TRANSIENT_HTTP_STATUSES.has(res.status) || attempt === MAX_TRANSPORT_RETRIES) {
+        throw new GeminiApiError(
+          `Gemini generateContent failed with status ${res.status}`,
         );
       }
-      throw err;
+
+      const delayMs = TRANSPORT_RETRY_BASE_DELAY_MS * 2 ** attempt;
+      this.logger.warn("gupy extraction transient error; retrying", {
+        status: res.status,
+        attempt: attempt + 1,
+        delayMs,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
 
-    if (!res.ok) {
-      throw new GeminiApiError(`Gemini generateContent failed with status ${res.status}`);
-    }
-    const data = (await res.json()) as GeminiResponse;
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== "string" || text.trim().length === 0) {
-      throw new InvalidExtractionError("a resposta do Gemini não contém texto");
-    }
-    return { text, usage: data.usageMetadata };
+    throw new GeminiApiError("Gemini generateContent failed after retries");
   }
 }
