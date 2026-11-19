@@ -1,6 +1,16 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+export const DEFAULT_SEEN_FILE = "data/seen.json";
+
+/**
+ * Resolve the seen-state file from SEEN_FILE, falling back to the documented
+ * default. Kept in one place so main.ts and the docs cannot drift.
+ */
+export function seenFilePathFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  return env.SEEN_FILE?.trim() || DEFAULT_SEEN_FILE;
+}
+
 export interface SeenStore {
   load(): Promise<Set<string>>;
   save(ids: Set<string>): Promise<void>;

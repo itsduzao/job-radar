@@ -48,3 +48,24 @@ Segmento de desenvolvimento de software coberto (backend, frontend, fullstack). 
 **critérios**:
 Regras (tipo, área, localização, modalidade) que a triagem aplica para decidir se uma vaga é relevante.
 _Avoid_: filtros, regras de negócio
+
+**Gupy**:
+Plataforma brasileira de recrutamento (portal.gupy.io); segunda fonte de vagas do job-radar.
+
+**banco de talentos**:
+Publicação de "cadastro de interesse" no Gupy que não corresponde a vaga aberta; excluída na triagem.
+
+**portal-api.gupy.io**:
+Endpoint JSON público usado pela fonte Gupy para busca e detalhe de vagas.
+
+**LLM extraction**:
+Etapa em que o Gemini lê o HTML da página de busca do Gupy e devolve as vagas já estruturadas, em vez de depender de seletores CSS/XPath.
+_Avoid_: scraping por IA, parsing inteligente
+
+**prompt engineering**:
+Prática de escrever e versionar o texto que instrui o modelo (papel, campos, regras e formato de saída); no job-radar o prompt fica em `src/prompts/gupy-extraction-v1.txt`.
+_Avoid_: prompt mágico, ajuste de IA
+
+**chunking**:
+Divisão do HTML em lotes (por card ou por página) antes de enviar ao modelo, para caber no limite de tokens e reduzir o custo por chamada.
+_Avoid_: fatiamento, divisão de texto

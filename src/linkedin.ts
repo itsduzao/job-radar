@@ -1,4 +1,4 @@
-import type { Query } from "./config.js";
+import type { LinkedInQuery } from "./config.js";
 import type { Post } from "./domain.js";
 import type { Source } from "./source.js";
 
@@ -6,7 +6,7 @@ export interface LinkedInScraper {
   fetchPosts(url: string, cookie: string): Promise<Post[]>;
 }
 
-export function buildSearchUrl(query: Query): string {
+export function buildSearchUrl(query: LinkedInQuery): string {
   const params = new URLSearchParams({
     keywords: query.keywords,
     origin: "FACETED_SEARCH",
@@ -17,7 +17,7 @@ export function buildSearchUrl(query: Query): string {
 
 export class LinkedInSource implements Source {
   constructor(
-    private readonly query: Query,
+    private readonly query: LinkedInQuery,
     private readonly liCookie: string,
     private readonly scraper: LinkedInScraper,
   ) {}

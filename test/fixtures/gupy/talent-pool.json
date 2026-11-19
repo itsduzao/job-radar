@@ -1,0 +1,12 @@
+{
+  "id": 99999999,
+  "name": "Banco de Talentos - Desenvolvimento Fullstack",
+  "companyName": "BigTech Corp",
+  "city": "São Paulo",
+  "state": "SP",
+  "workplaceType": "remote",
+  "jobType": "vacancy_type_effective",
+  "publishedDate": "2026-10-20T10:00:00Z",
+  "description": "<p>Esta é uma publicação de <strong>Banco de Talentos</strong> / <strong>Talent Pool</strong>.</p><p>Não há vaga aberta no momento. Estamos cadastrando profissionais interessados em futuras oportunidades na área de desenvolvimento fullstack.</p><p>Se você tem experiência com React, Node.js, TypeScript, banco de dados, cloud, cadastre seu currículo aqui para ser contatado quando surgirem vagas compatíveis.</p><p><strong>Cadastro de Interesse</strong> / <strong>Banco de Currículos</strong>.</p>",
+  "isTalentPool": true
+}

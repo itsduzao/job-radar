@@ -1,0 +1,151 @@
+{
+  "data": [
+    {
+      "id": 12345688,
+      "name": "Estágio Backend Go",
+      "companyName": "GoCorp",
+      "city": "Florianópolis",
+      "state": "SC",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-10-05T11:00:00Z",
+      "description": "<p>Estágio em Go, gRPC, PostgreSQL.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345689,
+      "name": "Júnior Fullstack TypeScript",
+      "companyName": "TypeSafe",
+      "city": "Joinville",
+      "state": "SC",
+      "workplaceType": "hybrid",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-10-04T14:00:00Z",
+      "description": "<p>React, Node.js, TypeScript, Prisma.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345690,
+      "name": "Estagiário Mobile React Native",
+      "companyName": "MobileFirst",
+      "city": "Blumenau",
+      "state": "SC",
+      "workplaceType": "onSite",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-10-03T09:00:00Z",
+      "description": "<p>React Native, Expo, TypeScript.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345691,
+      "name": "Trainee Data Engineering",
+      "companyName": "DataFlow",
+      "city": "São Paulo",
+      "state": "SP",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_trainee",
+      "publishedDate": "2026-10-02T16:00:00Z",
+      "description": "<p>Python, Spark, Airflow, SQL.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345692,
+      "name": "Estágio QA Automação",
+      "companyName": "QualityTech",
+      "city": "Campinas",
+      "state": "SP",
+      "workplaceType": "hybrid",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-10-01T10:00:00Z",
+      "description": "<p>Cypress, Playwright, TypeScript.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345693,
+      "name": "Júnior Backend Kotlin",
+      "companyName": "KotlinLovers",
+      "city": "Rio de Janeiro",
+      "state": "RJ",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-09-30T13:00:00Z",
+      "description": "<p>Kotlin, Spring Boot, PostgreSQL.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345694,
+      "name": "Estagiário Frontend Angular",
+      "companyName": "AngularExperts",
+      "city": "Salvador",
+      "state": "BA",
+      "workplaceType": "onSite",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-09-29T11:00:00Z",
+      "description": "<p>Angular, RxJS, TypeScript.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345695,
+      "name": "Júnior DevSecOps",
+      "companyName": "SecureCode",
+      "city": "Recife",
+      "state": "PE",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-09-28T15:00:00Z",
+      "description": "<p>Docker, Kubernetes, CI/CD, Security.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345696,
+      "name": "Estágio Backend Rust",
+      "companyName": "Rustaceans",
+      "city": "Fortaleza",
+      "state": "CE",
+      "workplaceType": "hybrid",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-09-27T08:00:00Z",
+      "description": "<p>Rust, Actix, PostgreSQL.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345697,
+      "name": "Júnior Fullstack Elixir",
+      "companyName": "ElixirDevs",
+      "city": "Manaus",
+      "state": "AM",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-09-26T12:00:00Z",
+      "description": "<p>Elixir, Phoenix, LiveView.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345698,
+      "name": "Estagiário Data Science",
+      "companyName": "AIStartup",
+      "city": "Florianópolis",
+      "state": "SC",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_internship",
+      "publishedDate": "2026-09-25T14:00:00Z",
+      "description": "<p>Python, Pandas, Scikit-learn, ML.</p>",
+      "isTalentPool": false
+    },
+    {
+      "id": 12345699,
+      "name": "Banco de Talentos - Estágio Tech",
+      "companyName": "FutureTalent",
+      "city": "São Paulo",
+      "state": "SP",
+      "workplaceType": "remote",
+      "jobType": "vacancy_type_effective",
+      "publishedDate": "2026-09-24T10:00:00Z",
+      "description": "<p>Cadastro de interesse para estágios em tecnologia.</p>",
+      "isTalentPool": true
+    }
+  ],
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 2
+}

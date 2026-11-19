@@ -191,7 +191,7 @@ describe("PlaywrightScraper", () => {
 
     await expect(
       new PlaywrightScraper().fetchPosts("https://busca", "cookie"),
-    ).rejects.toThrow("bloqueou o acesso");
+    ).rejects.toThrow("ERR_TOO_MANY_REDIRECTS");
   });
 
   it("inclui diagnóstico quando nenhum post carrega", async () => {
