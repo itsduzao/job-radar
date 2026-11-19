@@ -4,7 +4,7 @@ import { GupySource } from "./gupy.js";
 import { GeminiExtractor } from "./gemini-extractor.js";
 import { PlaywrightScraper, GupyPlaywrightScraper } from "./playwright-scraper.js";
 import { run } from "./run.js";
-import { FileSeenStore } from "./seen.js";
+import { FileSeenStore, seenFilePathFromEnv } from "./seen.js";
 import { StubSource } from "./source.js";
 import type { Source } from "./source.js";
 import { HttpTelegramClient, type TelegramClient } from "./telegram.js";
@@ -127,7 +127,7 @@ logger.info("Sources configured", {
 run({
   sources,
   telegram,
-  seen: new FileSeenStore("data/seen.json"),
+  seen: new FileSeenStore(seenFilePathFromEnv()),
   triageProvider,
 }).catch((err) => {
   logger.error("Run failed", { error: err instanceof Error ? err.message : String(err) });

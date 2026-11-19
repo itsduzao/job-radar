@@ -35,6 +35,12 @@ Guia de operação para o job-radar com suporte a LinkedIn e Gupy.
 | `GEMINI_INPUT_COST_PER_MILLION` | `0.30` | Custo em US$ por 1M tokens de entrada, usado no log `estimatedCostUsd` |
 | `GEMINI_OUTPUT_COST_PER_MILLION` | `2.50` | Custo em US$ por 1M tokens de saída, usado no log `estimatedCostUsd` |
 
+### Operacional
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `SEEN_FILE` | `data/seen.json` | Arquivo JSON com os ids já vistos (`urn:li:*` e `gupy:*`). Os ids são gravados **antes** do envio do digest, então uma falha do Telegram não faz o próximo run reprocessar as mesmas vagas. |
+| `LOG_LEVEL` | `info` | Nível de log (`debug`, `info`, `warn`, `error`) |
+
 Com `GUPY_USE_LLM_EXTRACTION=true`, `GEMINI_API_KEY` passa a ser **obrigatória**: o `loadConfig` falha na inicialização se ela estiver ausente ou vazia. Com a flag desligada, a chave continua opcional (usada apenas pela triagem). **O modo shadow também precisa da chave**: com `GUPY_LLM_SHADOW=true` e sem `GEMINI_API_KEY`, o processo loga um `warn` e segue só com seletores (não quebra). Se `GUPY_USE_LLM_EXTRACTION=true` e `GUPY_LLM_SHADOW=true` ao mesmo tempo, vale o modo LLM puro (shadow é ignorado). Valores inválidos, zero ou negativos em `GEMINI_EXTRACTION_MAX_TOKENS`, `GEMINI_EXTRACTION_BATCH_SIZE` ou `GEMINI_TIMEOUT_MS` caem no default.
 
 #### Custo estimado

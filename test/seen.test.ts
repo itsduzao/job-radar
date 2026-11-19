@@ -2,7 +2,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FileSeenStore } from "../src/seen.js";
+import { FileSeenStore, DEFAULT_SEEN_FILE, seenFilePathFromEnv } from "../src/seen.js";
+
+describe("seenFilePathFromEnv", () => {
+  it("usa SEEN_FILE quando definido", () => {
+    expect(seenFilePathFromEnv({ SEEN_FILE: "/tmp/custom-seen.json" })).toBe(
+      "/tmp/custom-seen.json",
+    );
+  });
+
+  it("cai no default documentado quando SEEN_FILE está ausente ou vazio", () => {
+    expect(seenFilePathFromEnv({})).toBe(DEFAULT_SEEN_FILE);
+    expect(seenFilePathFromEnv({ SEEN_FILE: "   " })).toBe(DEFAULT_SEEN_FILE);
+  });
+});
 
 describe("FileSeenStore", () => {
   it("faz roundtrip de ids num arquivo", async () => {

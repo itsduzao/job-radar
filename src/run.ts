@@ -45,10 +45,14 @@ export async function run(deps: RunDeps): Promise<Vaga[]> {
     logger.info("Post discarded", { postId: descartado.post.id, motivo: descartado.motivo });
   }
 
-  await sendDigest(vagas, deps.telegram, now());
-
+  // Persist before delivery: the digest may fail (Telegram outage, rate limit),
+  // and the collected jobs must still be recorded as seen so the next run does
+  // not re-triage and re-pay for them.
   if (novos.length > 0) {
     await deps.seen.save(new Set([...seenIds, ...novos.map((p) => p.id)]));
+    logger.info("Seen state saved", { seen: seenIds.size + novos.length, added: novos.length });
   }
+
+  await sendDigest(vagas, deps.telegram, now());
   return vagas;
 }
