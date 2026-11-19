@@ -1,9 +1,10 @@
 import { loadConfig, type LinkedInQuery, type GupySearchConfig } from "./config.js";
 import { LinkedInSource } from "./linkedin.js";
 import { GupySource } from "./gupy.js";
-import { PlaywrightScraper } from "./playwright-scraper.js";
+import { GeminiExtractor } from "./gemini-extractor.js";
+import { PlaywrightScraper, GupyPlaywrightScraper } from "./playwright-scraper.js";
 import { run } from "./run.js";
-import { FileSeenStore } from "./seen.js";
+import { FileSeenStore, seenFilePathFromEnv } from "./seen.js";
 import { StubSource } from "./source.js";
 import type { Source } from "./source.js";
 import { HttpTelegramClient, type TelegramClient } from "./telegram.js";
@@ -12,7 +13,6 @@ import {
   type TriageProvider,
   type TriageResult,
 } from "./triage.js";
-import { HttpClient, createGupyHttpClient } from "./http-client.js";
 import { createLogger } from "./logger.js";
 
 try {
@@ -48,8 +48,6 @@ if (config.secrets.geminiApiKey) {
   };
 }
 
-const httpClient = createGupyHttpClient();
-
 let sources: Source[] = [];
 const liCookie = config.secrets.liCookie;
 const linkedInQueries = config.queries.filter(
@@ -69,10 +67,52 @@ const gupyQueries = config.queries.filter(
   (q): q is GupySearchConfig => q.source === "gupy"
 );
 const dryRun = process.env.GUPY_DRY_RUN === "true";
+const llmShadow = process.env.GUPY_LLM_SHADOW === "true";
+
+logger.info("llm_extraction", {
+  enabled: config.gupyLlm.enabled,
+  model: config.gupyLlm.model,
+  batchSize: config.gupyLlm.batchSize,
+  shadow: llmShadow,
+});
+
 if (gupyQueries.length > 0) {
+  const gupyLogger = logger.child({ source: "gupy" });
+  let gupyScraper: GupyPlaywrightScraper;
+  if (config.gupyLlm.enabled) {
+    const extractor = new GeminiExtractor(
+      config.secrets.geminiApiKey!,
+      config.gupyLlm.model,
+      logger.child({ source: "gupy-llm" }),
+      {
+        maxOutputTokens: config.gupyLlm.maxOutputTokens,
+        batchSize: config.gupyLlm.batchSize,
+      },
+    );
+    gupyScraper = new GupyPlaywrightScraper(extractor, true, gupyLogger);
+  } else if (llmShadow && config.secrets.geminiApiKey) {
+    const extractor = new GeminiExtractor(
+      config.secrets.geminiApiKey,
+      config.gupyLlm.model,
+      logger.child({ source: "gupy-llm" }),
+      {
+        maxOutputTokens: config.gupyLlm.maxOutputTokens,
+        batchSize: config.gupyLlm.batchSize,
+      },
+    );
+    gupyScraper = new GupyPlaywrightScraper(extractor, false, gupyLogger, true);
+  } else {
+    if (llmShadow) {
+      logger.warn(
+        "GUPY_LLM_SHADOW=true sem GEMINI_API_KEY; shadow desativado, usando apenas seletores",
+      );
+    }
+    gupyScraper = new GupyPlaywrightScraper(undefined, false, gupyLogger);
+  }
+
   for (const query of gupyQueries) {
     sources.push(
-      new GupySource(query, httpClient, logger.child({ source: "gupy", profile: query.profiles[0]?.name }))
+      new GupySource(query, gupyScraper, logger.child({ source: "gupy", profile: query.profiles[0]?.name }))
     );
   }
 }
@@ -87,7 +127,7 @@ logger.info("Sources configured", {
 run({
   sources,
   telegram,
-  seen: new FileSeenStore("data/seen.json"),
+  seen: new FileSeenStore(seenFilePathFromEnv()),
   triageProvider,
 }).catch((err) => {
   logger.error("Run failed", { error: err instanceof Error ? err.message : String(err) });

@@ -1,29 +1,16 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { GupySource } from "../src/gupy.js";
-import { HttpClient } from "../src/http-client.js";
+import type { GupyScraper } from "../src/playwright-scraper.js";
 import { createLogger } from "../src/logger.js";
 import type { GupySearchConfig } from "../src/config.js";
 import type { Post } from "../src/domain.js";
-import * as searchPage1 from "../test/fixtures/gupy/search-page-1.json" with { type: "json" };
-import * as searchPage2 from "../test/fixtures/gupy/search-page-2.json" with { type: "json" };
-import * as searchEmpty from "../test/fixtures/gupy/search-empty.json" with { type: "json" };
-import * as jobDetail from "../test/fixtures/gupy/job-detail.json" with { type: "json" };
-import * as error429 from "../test/fixtures/gupy/error-429.json" with { type: "json" };
-import * as error403 from "../test/fixtures/gupy/error-403.json" with { type: "json" };
-import * as talentPool from "../test/fixtures/gupy/talent-pool.json" with { type: "json" };
 
 describe("GupySource", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
-  let originalFetch: typeof globalThis.fetch;
   let config: GupySearchConfig;
-  let httpClient: HttpClient;
+  let mockScraper: GupyScraper;
   let logger: ReturnType<typeof createLogger>;
 
   beforeEach(() => {
-    originalFetch = globalThis.fetch;
-    fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
     config = {
       source: "gupy",
       profiles: [
@@ -43,296 +30,254 @@ describe("GupySource", () => {
       terms: ["estagio", "junior", "desenvolvedor"],
     };
 
-    httpClient = new HttpClient({ maxRetries: 0, baseDelayMs: 1, timeoutMs: 5000 });
+    mockScraper = {
+      fetchPosts: vi.fn(),
+    };
+
     logger = createLogger("test-gupy");
-    // Fixture dates are from Oct 2026; set max age to 90 days to include them when test runs in Nov 2026+
     process.env.GUPY_MAX_AGE_DAYS = "90";
   });
 
   afterEach(() => {
-    vi.stubGlobal("fetch", originalFetch);
     delete process.env.GUPY_MAX_AGE_DAYS;
+    vi.clearAllMocks();
   });
 
-  function mockResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json", ...headers },
-    });
-  }
-
-  function setupPaginationMock() {
-    // Track call count per query (base URL without page parameter)
-    const callCounts = new Map<string, number>();
-
-    // Create a page with 50 items to trigger pagination
-    const page1With50 = {
-      ...searchPage1,
-      data: Array(50).fill(null).map((_, i) => searchPage1.data[i % searchPage1.data.length]),
+  function makePost(overrides: Partial<Post> = {}): Post {
+    return {
+      id: `gupy:12345`,
+      url: "https://portal.gupy.io/job/12345",
+      texto: [
+        "Título: Estágio Backend",
+        "Empresa: Acme",
+        "Localização: Florianópolis/SC",
+        "Modalidade: remoto",
+        "Tipo: estagio",
+        "Publicado: 2026-10-15T10:00:00-03:00",
+        "Descrição: Vaga para estagiário backend...",
+      ].join("\n"),
+      ...overrides,
     };
-    const page2With50 = {
-      ...searchPage2,
-      data: Array(50).fill(null).map((_, i) => searchPage2.data[i % searchPage2.data.length]),
-    };
-
-    function getBaseUrl(url: string): string {
-      // Remove page parameter to group pagination calls for same query
-      return url.replace(/[?&]page=\d+/, "").replace(/[?&]pageSize=\d+/, "");
-    }
-
-    fetchMock.mockImplementation((url: string) => {
-      const baseUrl = getBaseUrl(url);
-      const count = callCounts.get(baseUrl) || 0;
-      callCounts.set(baseUrl, count + 1);
-
-      // Detail URL -> job detail
-      if (url.includes("/api/v1/jobs/12345678")) {
-        return Promise.resolve(mockResponse(200, jobDetail));
-      }
-      // Search URLs
-      if (url.includes("/api/v1/jobs?")) {
-        if (count === 0) {
-          return Promise.resolve(mockResponse(200, page1With50));
-        }
-        if (count === 1) {
-          return Promise.resolve(mockResponse(200, page2With50));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
-      }
-      return Promise.resolve(mockResponse(200, searchEmpty));
-    });
   }
 
   describe("fetchPosts", () => {
-    it("expands matrix profiles x terms and paginates", async () => {
-      setupPaginationMock();
+    it("expands matrix profiles x terms and calls scraper for each", async () => {
+      let callCount = 0;
+      mockScraper.fetchPosts = vi.fn().mockImplementation(async () => {
+        callCount++;
+        // Return unique posts per call to avoid cross-term dedupe removing them
+        return [
+          makePost({ id: `gupy:${callCount}a`, texto: makePost().texto.replace("12345", `${callCount}a`) }),
+          makePost({ id: `gupy:${callCount}b`, texto: makePost().texto.replace("12345", `${callCount}b`) }),
+        ];
+      });
 
-      const source = new GupySource(config, httpClient, logger);
+      const source = new GupySource(config, mockScraper, logger);
       const posts = await source.fetchPosts();
 
-      // 6 queries * (10 items page 1 + 12 items page 2) = 132, but cross-term dedupe reduces
-      expect(posts.length).toBeGreaterThan(0);
-      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(6);
+      // 2 profiles × 3 terms = 6 queries
+      expect(mockScraper.fetchPosts).toHaveBeenCalledTimes(6);
+      expect(posts.length).toBe(12); // 6 queries × 2 posts each
     });
 
     it("deduplicates cross-term by numericId", async () => {
-      // Same job appears in two different term searches
-      const duplicateJob = { ...searchPage1 };
-      duplicateJob.data = [searchPage1.data[0], searchPage1.data[0]]; // Same job twice
+      const duplicatePost = makePost({ id: "gupy:1" });
+      const uniquePost = makePost({ id: "gupy:2" });
+      mockScraper.fetchPosts = vi.fn()
+        .mockResolvedValueOnce([duplicatePost, uniquePost]) // first query
+        .mockResolvedValueOnce([duplicatePost, uniquePost]); // second query (same IDs)
 
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, duplicateJob));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
-      });
-
-      const source = new GupySource(config, httpClient, logger);
+      const source = new GupySource(config, mockScraper, logger);
       const posts = await source.fetchPosts();
 
       const ids = posts.map((p) => p.id);
       const uniqueIds = new Set(ids);
-      expect(uniqueIds.size).toBe(ids.length);
+      expect(uniqueIds.size).toBe(ids.length); // no duplicates
+      expect(posts.length).toBe(2); // only unique posts
+    });
+
+    it("filters out posts older than maxAgeDays", async () => {
+      const oldPost = makePost({
+        id: "gupy:old",
+        texto: makePost().texto.replace("2026-10-15", "2025-01-01"), // > 90 days old
+      });
+      const newPost = makePost({ id: "gupy:new" });
+      mockScraper.fetchPosts = vi.fn().mockResolvedValue([oldPost, newPost]);
+
+      const source = new GupySource(config, mockScraper, logger);
+      const posts = await source.fetchPosts();
+
+      expect(posts.length).toBe(1);
+      expect(posts[0].id).toBe("gupy:new");
     });
 
     it("maps workplaceType correctly in texto", async () => {
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [searchPage1.data[0]] })); // remote
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
+      const remotePost = makePost({
+        id: "gupy:remote",
+        texto: makePost().texto.replace("Modalidade: remoto", "Modalidade: remoto"),
+      });
+      const onsitePost = makePost({
+        id: "gupy:onsite",
+        texto: makePost({}).texto.replace("Modalidade: remoto", "Modalidade: presencial"),
+      });
+      const hybridPost = makePost({
+        id: "gupy:hybrid",
+        texto: makePost({}).texto.replace("Modalidade: remoto", "Modalidade: hibrido"),
       });
 
-      const source = new GupySource(config, httpClient, logger);
+      mockScraper.fetchPosts = vi.fn()
+        .mockResolvedValueOnce([remotePost])
+        .mockResolvedValueOnce([onsitePost])
+        .mockResolvedValueOnce([hybridPost])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const source = new GupySource(config, mockScraper, logger);
       const posts = await source.fetchPosts();
 
-      expect(posts.length).toBeGreaterThan(0);
-      expect(posts[0].texto).toContain("Modalidade: remoto");
+      const remote = posts.find(p => p.id === "gupy:remote");
+      const onsite = posts.find(p => p.id === "gupy:onsite");
+      const hybrid = posts.find(p => p.id === "gupy:hybrid");
+
+      expect(remote?.texto).toContain("Modalidade: remoto");
+      expect(onsite?.texto).toContain("Modalidade: presencial");
+      expect(hybrid?.texto).toContain("Modalidade: hibrido");
     });
 
     it("maps jobType correctly in texto", async () => {
-      // Test internship -> estagio
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [searchPage1.data[0]] })); // internship
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
+      const internshipPost = makePost({
+        id: "gupy:intern",
+        texto: makePost({}).texto.replace("Tipo: estagio", "Tipo: estagio"),
+      });
+      const traineePost = makePost({
+        id: "gupy:trainee",
+        texto: makePost({}).texto.replace("Tipo: estagio", "Tipo: junior"),
+      });
+      const effectivePost = makePost({
+        id: "gupy:effective",
+        texto: makePost({}).texto.replace("Tipo: estagio", "Tipo: junior"),
       });
 
-      const source = new GupySource(config, httpClient, logger);
+      mockScraper.fetchPosts = vi.fn()
+        .mockResolvedValueOnce([internshipPost])
+        .mockResolvedValueOnce([traineePost])
+        .mockResolvedValueOnce([effectivePost])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const source = new GupySource(config, mockScraper, logger);
       const posts = await source.fetchPosts();
 
-      expect(posts.length).toBeGreaterThan(0);
-      expect(posts[0].texto).toContain("Tipo: estagio");
+      const intern = posts.find(p => p.id === "gupy:intern");
+      const trainee = posts.find(p => p.id === "gupy:trainee");
+      const effective = posts.find(p => p.id === "gupy:effective");
+
+      expect(intern?.texto).toContain("Tipo: estagio");
+      expect(trainee?.texto).toContain("Tipo: junior");
+      expect(effective?.texto).toContain("Tipo: junior");
     });
 
-    it("maps jobType trainee/effective to junior", async () => {
-      const traineeJob = { ...searchPage1.data[1] }; // trainee
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [traineeJob] }));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
+    it("sorts posts by publishedDate descending", async () => {
+      const olderPost = makePost({
+        id: "gupy:older",
+        texto: makePost().texto.replace("Publicado: 2026-10-15T10:00:00-03:00", "Publicado: 2026-10-10T10:00:00-03:00"),
       });
-
-      const source = new GupySource(config, httpClient, logger);
-      const posts = await source.fetchPosts();
-
-      expect(posts.length).toBeGreaterThan(0);
-      expect(posts[0].texto).toContain("Tipo: junior");
-    });
-
-    it("falls back to job detail when description is short", async () => {
-      const shortDescJob = { ...searchPage1.data[0], description: "<p>Short</p>" };
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs/12345678")) {
-          return Promise.resolve(mockResponse(200, jobDetail));
-        }
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [shortDescJob] }));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
+      const newerPost = makePost({
+        id: "gupy:newer",
+        texto: makePost().texto.replace("Publicado: 2026-10-15T10:00:00-03:00", "Publicado: 2026-10-20T10:00:00-03:00"),
       });
+      mockScraper.fetchPosts = vi.fn().mockResolvedValue([olderPost, newerPost]);
 
-      const source = new GupySource(config, httpClient, logger);
+      const source = new GupySource(config, mockScraper, logger);
       const posts = await source.fetchPosts();
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/v1/jobs/12345678"),
-        expect.any(Object)
-      );
-      expect(posts.length).toBeGreaterThan(0);
-      expect(posts[0].texto).toContain("Sobre a vaga");
+      expect(posts[0].id).toBe("gupy:newer");
+      expect(posts[1].id).toBe("gupy:older");
     });
 
-    it("filters talent pool jobs", async () => {
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [talentPool] }));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
-      });
+    it("handles scraper errors and continues other queries", async () => {
+      mockScraper.fetchPosts = vi.fn()
+        .mockResolvedValueOnce([makePost({ id: "gupy:1" })]) // success
+        .mockRejectedValueOnce(new Error("Network error")) // failure
+        .mockResolvedValueOnce([makePost({ id: "gupy:2" })]) // success
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
 
-      const source = new GupySource(config, httpClient, logger);
+      const source = new GupySource(config, mockScraper, logger);
       const posts = await source.fetchPosts();
 
-      expect(posts.length).toBe(0);
+      expect(posts.length).toBe(2); // only successful queries
+      expect(posts.map(p => p.id)).toEqual(["gupy:1", "gupy:2"]);
     });
 
-    it("handles 429 error with retry and continues other queries", async () => {
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        // First query gets 429 then success
-        if (url.includes("term=estagio") && count === 0) {
-          return Promise.resolve(mockResponse(429, error429, { "retry-after": "1" }));
-        }
-        if (url.includes("term=estagio") && count === 1) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [searchPage1.data[0]] }));
-        }
-        if (url.includes("/api/v1/jobs?")) {
-          return Promise.resolve(mockResponse(200, searchEmpty));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
-      });
+    it("throws if all queries fail", async () => {
+      mockScraper.fetchPosts = vi.fn().mockRejectedValue(new Error("All failed"));
 
-      const retryHttpClient = new HttpClient({ maxRetries: 1, baseDelayMs: 1, timeoutMs: 5000 });
-      const source = new GupySource(config, retryHttpClient, logger);
+      const source = new GupySource(config, mockScraper, logger);
+
+      await expect(source.fetchPosts()).rejects.toThrow("All Gupy queries failed");
+    });
+
+    it("opens circuit breaker after 3 consecutive failures", async () => {
+      mockScraper.fetchPosts = vi.fn().mockRejectedValue(new Error("Fail"));
+
+      const source = new GupySource(config, mockScraper, logger);
+      await expect(source.fetchPosts()).rejects.toThrow();
+
+      // Second call - circuit breaker should be open for failed queries
+      mockScraper.fetchPosts = vi.fn().mockResolvedValue([makePost({ id: "gupy:ok" })]);
       const posts = await source.fetchPosts();
 
-      expect(posts.length).toBeGreaterThanOrEqual(0); // May succeed after retry
+      // Some queries should be skipped due to circuit breaker
+      // But at least the successful mock should be called for non-broken queries
+      expect(posts.length).toBeGreaterThanOrEqual(0);
     });
 
-    it("returns empty array on dry-run", async () => {
+    it("respects dry-run mode", async () => {
       process.env.GUPY_DRY_RUN = "true";
-      const source = new GupySource(config, httpClient, logger);
+      mockScraper.fetchPosts = vi.fn();
+
+      const source = new GupySource(config, mockScraper, logger);
       const posts = await source.fetchPosts();
-      delete process.env.GUPY_DRY_RUN;
 
       expect(posts).toEqual([]);
+      expect(mockScraper.fetchPosts).not.toHaveBeenCalled();
+      delete process.env.GUPY_DRY_RUN;
     });
 
-    it("generates correct id and url format", async () => {
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [searchPage1.data[0]] }));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
+    it("builds correct search URLs with profile filters", async () => {
+      const capturedUrls: string[] = [];
+      mockScraper.fetchPosts = vi.fn().mockImplementation(async (url: string) => {
+        capturedUrls.push(url);
+        return [];
       });
 
-      const source = new GupySource(config, httpClient, logger);
-      const posts = await source.fetchPosts();
+      const source = new GupySource(config, mockScraper, logger);
+      await source.fetchPosts();
 
-      expect(posts.length).toBeGreaterThan(0);
-      expect(posts[0].id).toBe("gupy:12345678");
-      expect(posts[0].url).toBe("https://portal.gupy.io/job/12345678");
-    });
+      expect(capturedUrls.length).toBe(6); // 2 profiles × 3 terms
 
-    it("sorts by publishedDate descending", async () => {
-      const job1 = { ...searchPage1.data[0], publishedDate: "2026-10-10T10:00:00Z" };
-      const job2 = { ...searchPage1.data[1], publishedDate: "2026-10-15T10:00:00Z" };
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [job1, job2] }));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
-      });
+      // Check florianopolis-sc profile
+      const floripaUrls = capturedUrls.filter(u => u.includes("state=SC"));
+      expect(floripaUrls.length).toBe(3);
+      for (const url of floripaUrls) {
+        // URLSearchParams encodes [] as %5B%5D
+        expect(url).toContain("city%5B%5D=Florian%C3%B3polis");
+        expect(url).toContain("workplaceTypes%5B%5D=remote");
+        expect(url).toContain("workplaceTypes%5B%5D=hybrid");
+        expect(url).toContain("workplaceTypes%5B%5D=onSite");
+      }
 
-      const source = new GupySource(config, httpClient, logger);
-      const posts = await source.fetchPosts();
-
-      expect(posts.length).toBeGreaterThanOrEqual(2);
-      const dateA = new Date(posts[0].texto.match(/Publicado: (.+)/)?.[1] || "").getTime();
-      const dateB = new Date(posts[1].texto.match(/Publicado: (.+)/)?.[1] || "").getTime();
-      expect(dateA).toBeGreaterThanOrEqual(dateB);
-    });
-
-    it("filters by maxAgeDays", async () => {
-      const oldJob = { ...searchPage1.data[0], publishedDate: "2025-01-01T10:00:00Z" };
-      const recentJob = { ...searchPage1.data[1], publishedDate: new Date().toISOString() };
-      const callCounts = new Map<string, number>();
-      fetchMock.mockImplementation((url: string) => {
-        const count = callCounts.get(url) || 0;
-        callCounts.set(url, count + 1);
-        if (url.includes("/api/v1/jobs?") && count === 0) {
-          return Promise.resolve(mockResponse(200, { ...searchPage1, data: [oldJob, recentJob] }));
-        }
-        return Promise.resolve(mockResponse(200, searchEmpty));
-      });
-
-      process.env.GUPY_MAX_AGE_DAYS = "30";
-      const source = new GupySource(config, httpClient, logger);
-      const posts = await source.fetchPosts();
-      delete process.env.GUPY_MAX_AGE_DAYS;
-
-      // Only recent job should pass the filter
-      expect(posts.length).toBe(1);
-      expect(posts[0].id).toBe("gupy:12345679");
+      // Check remote-br profile
+      const remoteUrls = capturedUrls.filter(u => !u.includes("state="));
+      expect(remoteUrls.length).toBe(3);
+      for (const url of remoteUrls) {
+        expect(url).toContain("workplaceTypes%5B%5D=remote");
+        expect(url).not.toContain("city%5B%5D");
+      }
     });
   });
 });

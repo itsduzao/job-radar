@@ -54,6 +54,19 @@ export class HttpClient {
     let attempt = 0;
     let lastError: Error | null = null;
 
+    const isGupyApi = url.includes("portal-api.gupy.io") || url.includes("api.gupy.io") || url.includes("portal.gupy.io/api");
+    const isGupyPortalApi = url.includes("api.gupy.io");
+    const isGupyPortalSearch = url.includes("portal.gupy.io/job-search") || url.includes("portal.gupy.io/job/");
+    const defaultHeaders: Record<string, string> = {
+      "accept": "application/json",
+      "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      ...((isGupyApi || isGupyPortalApi || isGupyPortalSearch) ? {
+        "referer": "https://portal.gupy.io/",
+        "origin": "https://portal.gupy.io",
+      } : {}),
+      ...headers,
+    };
+
     while (attempt <= this.maxRetries) {
       try {
         const controller = new AbortController();
@@ -61,11 +74,7 @@ export class HttpClient {
 
         const response = await fetch(url, {
           method: "GET",
-          headers: {
-            "accept": "application/json",
-            "user-agent": "job-radar/1.0",
-            ...headers,
-          },
+          headers: defaultHeaders,
           signal: controller.signal,
         });
 

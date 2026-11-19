@@ -91,4 +91,41 @@ describe("run", () => {
     });
     expect(sendMessage).toHaveBeenCalled();
   });
+
+  it("persiste os vistos mesmo quando o envio do digest falha", async () => {
+    const { store, ids } = inMemoryStore();
+    const telegram = {
+      sendMessage: vi.fn(async () => {
+        throw new Error("Telegram indisponível");
+      }),
+    };
+    const relevantTriage: TriageProvider = {
+      async triagePost() {
+        return {
+          relevante: true,
+          vaga: {
+            role: "Estágio Backend",
+            empresa: "Acme",
+            localizacao: "Florianópolis/SC",
+            tipo: "estagio",
+            area: "backend",
+            modalidade: "remoto",
+          },
+        };
+      },
+    };
+
+    await expect(
+      run({
+        sources: [onePostSource()],
+        telegram,
+        seen: store,
+        triageProvider: relevantTriage,
+        now: () => new Date("2026-10-07T12:00:00Z"),
+      }),
+    ).rejects.toThrow("Telegram indisponível");
+
+    expect(telegram.sendMessage).toHaveBeenCalled();
+    expect(ids).toEqual(new Set(["urn:1"]));
+  });
 });
