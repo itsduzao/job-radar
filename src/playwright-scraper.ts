@@ -437,11 +437,35 @@ export class GupyPlaywrightScraper implements GupyScraper {
 
   private async extractJobs(page: Page): Promise<GupyJobCard[]> {
     return page.$$eval(GUPY_JOB_CARD_SELECTOR, (cards) => {
+      // Real Gupy card hrefs are https://{company}.gupy.io/job/{base64url}, where
+      // the token decodes to {"jobId":<number>,"source":"gupy_portal"} (ADR-0004).
+      // Decode it so legacy ids match the numeric ids produced by the LLM path;
+      // otherwise keep the plain numeric match, else fall back to the raw href.
+      const legacyJobIdFromHref = (url: string): string | null => {
+        const token = /\/job\/([^/?#]+)/.exec(url)?.[1];
+        if (!token || /^\d+$/.test(token)) return null;
+        try {
+          const base64 = token.replaceAll("-", "+").replaceAll("_", "/");
+          const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+          const decoded: unknown = JSON.parse(atob(padded));
+          if (typeof decoded !== "object" || decoded === null || !("jobId" in decoded)) {
+            return null;
+          }
+          const jobId = (decoded as { jobId: unknown }).jobId;
+          return typeof jobId === "number" && Number.isInteger(jobId) && jobId > 0
+            ? String(jobId)
+            : null;
+        } catch {
+          return null;
+        }
+      };
+
       return cards.map(card => {
         const linkEl = card.querySelector(GUPY_JOB_LINK_SELECTOR);
         const url = linkEl?.getAttribute("href") || "";
+        const tokenJobId = legacyJobIdFromHref(url);
         const jobIdMatch = url.match(/\/job\/(\d+)/);
-        const id = jobIdMatch ? jobIdMatch[1] : url;
+        const id = tokenJobId ?? (jobIdMatch ? jobIdMatch[1] : url);
 
         // Try various selectors for job details
         const title = card.querySelector('[data-testid="job-title"], h2, h3, .job-title, [class*="title"]')?.textContent?.trim() || "";

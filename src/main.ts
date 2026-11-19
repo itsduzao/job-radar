@@ -73,7 +73,7 @@ logger.info("llm_extraction", {
   enabled: config.gupyLlm.enabled,
   model: config.gupyLlm.model,
   batchSize: config.gupyLlm.batchSize,
-  llm_shadow: llmShadow ? "enabled" : "disabled",
+  shadow: llmShadow,
 });
 
 if (gupyQueries.length > 0) {
@@ -84,6 +84,10 @@ if (gupyQueries.length > 0) {
       config.secrets.geminiApiKey!,
       config.gupyLlm.model,
       logger.child({ source: "gupy-llm" }),
+      {
+        maxOutputTokens: config.gupyLlm.maxOutputTokens,
+        batchSize: config.gupyLlm.batchSize,
+      },
     );
     gupyScraper = new GupyPlaywrightScraper(extractor, true, gupyLogger);
   } else if (llmShadow && config.secrets.geminiApiKey) {
@@ -91,6 +95,10 @@ if (gupyQueries.length > 0) {
       config.secrets.geminiApiKey,
       config.gupyLlm.model,
       logger.child({ source: "gupy-llm" }),
+      {
+        maxOutputTokens: config.gupyLlm.maxOutputTokens,
+        batchSize: config.gupyLlm.batchSize,
+      },
     );
     gupyScraper = new GupyPlaywrightScraper(extractor, false, gupyLogger, true);
   } else {
