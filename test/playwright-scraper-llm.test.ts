@@ -35,6 +35,39 @@ interface LegacyJob {
   url: string;
 }
 
+/**
+ * Minimal DOM shim for the legacy extractJobs $$eval callback: a card answers
+ * `querySelector` for the job link (with its href) and for the title selector;
+ * everything else resolves to null so the callback's fallbacks apply.
+ */
+interface FakeLegacyCard {
+  querySelector: (
+    selector: string,
+  ) => { getAttribute?: (name: string) => string | null; textContent?: string | null } | null;
+}
+
+function fakeLegacyCard(options: { href?: string; title?: string }): FakeLegacyCard {
+  const { href, title } = options;
+  return {
+    querySelector: (selector: string) => {
+      if (selector === JOB_LINK_SELECTOR) {
+        return href === undefined
+          ? null
+          : { getAttribute: (name: string) => (name === "href" ? href : null) };
+      }
+      if (selector.includes("title")) {
+        return { textContent: title ?? null };
+      }
+      return null;
+    },
+  };
+}
+
+/** Real card hrefs from the captured page, e.g. https://{company}.gupy.io/job/{base64url}. */
+const realCardHrefs = jobCards
+  .map((html) => /href="(https:\/\/[^"]+\/job\/[^"]+)"/.exec(html)?.[1] ?? null)
+  .filter((href): href is string => href !== null);
+
 const legacyJob: LegacyJob = {
   id: "999",
   title: "Estágio Legado",
@@ -50,6 +83,7 @@ const legacyJob: LegacyJob = {
 interface GupyPageState {
   cardHtmlPages: string[][];
   legacyJobs: LegacyJob[];
+  legacyCards: FakeLegacyCard[];
   maxNextClicks: number;
   nextClicks: number;
   discoveryCalls: number;
@@ -59,6 +93,7 @@ function makeGupyPage(overrides: Partial<GupyPageState> = {}) {
   const state: GupyPageState = {
     cardHtmlPages: [],
     legacyJobs: [],
+    legacyCards: [],
     maxNextClicks: 0,
     nextClicks: 0,
     discoveryCalls: 0,
@@ -71,14 +106,21 @@ function makeGupyPage(overrides: Partial<GupyPageState> = {}) {
     waitForSelector: vi.fn().mockResolvedValue(undefined),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
-    $$eval: vi.fn(async (selector: string) => {
-      if (selector === JOB_LINK_SELECTOR) {
-        const index = state.discoveryCalls;
-        state.discoveryCalls += 1;
-        return state.cardHtmlPages[index] ?? [];
-      }
-      return state.legacyJobs;
-    }),
+    $$eval: vi.fn(
+      async (selector: string, callback?: (elements: unknown[]) => unknown) => {
+        if (selector === JOB_LINK_SELECTOR) {
+          const index = state.discoveryCalls;
+          state.discoveryCalls += 1;
+          return state.cardHtmlPages[index] ?? [];
+        }
+        if (state.legacyCards.length > 0) {
+          // Run the real production callback against the fake cards so the
+          // legacy id derivation is exercised end to end.
+          return callback?.(state.legacyCards);
+        }
+        return state.legacyJobs;
+      },
+    ),
     locator: vi.fn(() => ({
       first: () => ({
         isVisible: async () => state.nextClicks < state.maxNextClicks,
@@ -274,6 +316,62 @@ describe("GupyPlaywrightScraper em modo LLM", () => {
     const selectors = page.$$eval.mock.calls.map((call) => call[0]);
     expect(selectors).toContain(LEGACY_CARD_SELECTOR);
     expect(selectors).not.toContain(JOB_LINK_SELECTOR);
+  });
+});
+
+describe("GupyPlaywrightScraper shadow com hrefs reais (token base64)", () => {
+  it("deriva o id numérico do token base64 do href real e casa com o id do LLM", async () => {
+    const realHref = realCardHrefs[0];
+    // O href real usa token base64, não um id numérico em texto claro.
+    expect(realHref).toMatch(/\/job\/[A-Za-z0-9_-]{8,}/);
+    expect(realHref).not.toMatch(/\/job\/\d+/);
+
+    const { page } = makeGupyPage({
+      cardHtmlPages: [jobCards],
+      legacyCards: [fakeLegacyCard({ href: realHref, title: "Estágio em Direito | Bancário" })],
+    });
+    // Mesmo card real: o token decodifica para {"jobId":12916776,...}.
+    const llmJob = extractedJobs[0];
+    expect(llmJob.id).toBe("12916776");
+    const { extractor } = createExtractor([[llmJob]]);
+    const { logger, calls } = createCapturingLogger();
+
+    const posts = await new GupyPlaywrightScraper(extractor, false, logger, true).fetchPosts(
+      SOURCE_URL,
+    );
+
+    // Antes da correção o id legado seria o href inteiro (o token não casa com
+    // /\/job\/(\d+)/) e matched nunca passaria de 0 em páginas reais.
+    expect(posts).toHaveLength(1);
+    expect(posts[0].id).toBe(`gupy:${llmJob.id}`);
+    expect(posts[0].url).toBe(realHref);
+
+    const shadow = calls.find((call) => call.msg === "shadow");
+    expect(shadow?.fields).toMatchObject({
+      shadow: true,
+      page: 0,
+      cardsLegacy: 1,
+      cardsLlm: 1,
+    });
+    expect(shadow?.fields?.matched).toBeGreaterThanOrEqual(1);
+    expect(shadow?.fields?.idsOnlyLegacy).not.toContain(llmJob.id);
+    expect(shadow?.fields?.idsOnlyLlm).not.toContain(llmJob.id);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("não lança em token inválido e mantém o href como id (fallback legado)", async () => {
+    const brokenHref = "https://acme.gupy.io/job/!!!not-base64!!!";
+    const { page } = makeGupyPage({
+      legacyCards: [fakeLegacyCard({ href: brokenHref, title: "Vaga Legado" })],
+    });
+    const { logger } = createCapturingLogger();
+
+    const posts = await new GupyPlaywrightScraper(undefined, false, logger).fetchPosts(SOURCE_URL);
+
+    expect(posts).toHaveLength(1);
+    expect(posts[0].id).toBe(`gupy:${brokenHref}`);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

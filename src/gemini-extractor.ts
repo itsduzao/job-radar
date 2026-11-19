@@ -263,6 +263,16 @@ export function estimateCostUsd(
   );
 }
 
+/**
+ * Explicit extractor settings. When provided, each option wins over its
+ * `GEMINI_EXTRACTION_*` environment fallback, so `config.gupyLlm` cannot drift
+ * from the extractor's actual behavior.
+ */
+export interface GeminiExtractorOptions {
+  maxOutputTokens?: number;
+  batchSize?: number;
+}
+
 export class GeminiExtractor implements JobExtractor {
   private readonly model: string;
   private readonly maxOutputTokens: number;
@@ -275,13 +285,14 @@ export class GeminiExtractor implements JobExtractor {
     private readonly apiKey: string,
     model?: string,
     logger?: Logger,
+    options?: GeminiExtractorOptions,
   ) {
     this.model = model ?? process.env.GEMINI_EXTRACTION_MODEL ?? DEFAULT_MODEL;
-    this.maxOutputTokens = positiveIntFromEnv(
-      "GEMINI_EXTRACTION_MAX_TOKENS",
-      DEFAULT_MAX_TOKENS,
-    );
-    this.batchSize = positiveIntFromEnv("GEMINI_EXTRACTION_BATCH_SIZE", DEFAULT_BATCH_SIZE);
+    this.maxOutputTokens =
+      options?.maxOutputTokens ??
+      positiveIntFromEnv("GEMINI_EXTRACTION_MAX_TOKENS", DEFAULT_MAX_TOKENS);
+    this.batchSize =
+      options?.batchSize ?? positiveIntFromEnv("GEMINI_EXTRACTION_BATCH_SIZE", DEFAULT_BATCH_SIZE);
     this.timeoutMs = positiveIntFromEnv("GEMINI_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
     this.pricing = {
       inputCostPerMillionUsd: positiveNumberFromEnv(

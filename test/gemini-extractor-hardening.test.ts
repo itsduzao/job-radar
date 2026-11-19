@@ -365,6 +365,37 @@ describe("GeminiExtractor hardening: aggregated metrics", () => {
   });
 });
 
+describe("GeminiExtractor hardening: constructor options", () => {
+  it("explicit batchSize option wins over GEMINI_EXTRACTION_BATCH_SIZE env", async () => {
+    process.env.GEMINI_EXTRACTION_BATCH_SIZE = "1";
+    const chunks = Array.from({ length: 4 }, (_, index) => `<li>card ${index}</li>`);
+    const fetchMock = createFetchMock().mockResolvedValue(jobsResponse([makeJob(0)]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const extractor = new GeminiExtractor("test-key", undefined, undefined, { batchSize: 3 });
+    await extractor.extractJobs(chunks, SOURCE_URL);
+
+    // env=1 alone would mean 4 fetch calls; the explicit option of 3 means 2 (3+1).
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("explicit maxOutputTokens option wins over GEMINI_EXTRACTION_MAX_TOKENS env", async () => {
+    process.env.GEMINI_EXTRACTION_MAX_TOKENS = "111";
+    const fetchMock = createFetchMock().mockResolvedValue(jobsResponse([makeJob(0)]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const extractor = new GeminiExtractor("test-key", undefined, undefined, {
+      maxOutputTokens: 4096,
+    });
+    await extractor.extractJobs([jobCards[0]], SOURCE_URL);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as {
+      generationConfig: { maxOutputTokens: number };
+    };
+    expect(body.generationConfig.maxOutputTokens).toBe(4096);
+  });
+});
+
 describe("estimateCostUsd", () => {
   it("computes cost from per-million token pricing independently of the extractor", () => {
     expect(estimateCostUsd(1_000_000, 1_000_000)).toBeCloseTo(0.375, 12);
