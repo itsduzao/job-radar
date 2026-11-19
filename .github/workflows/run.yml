@@ -27,7 +27,16 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Upload LinkedIn diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: linkedin-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .diagnostics/linkedin.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Commit seen state
+        if: success()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

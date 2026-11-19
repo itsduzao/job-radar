@@ -1,3 +1,5 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { chromium } from "playwright";
 import type { Page, Response } from "playwright";
 import type { Post } from "./domain.js";
@@ -9,6 +11,62 @@ const COOKIE_DOMAIN = ".linkedin.com";
 const POST_SELECTOR = 'div[role="listitem"][componentkey^="update-card-focus"]';
 const ACTIVITY_ID_RE = /activityId["\\]*:\s*["\\]*(\d+)/g;
 const RESPONSE_URL_RE = /search\/results\/content|rsc-action\/actions\/pagination/;
+const DIAGNOSTICS_PATH = ".diagnostics/linkedin.jsonl";
+
+interface NavigationDiagnostic {
+  timestamp: string;
+  event: "navigation_started" | "navigation_succeeded" | "navigation_failed";
+  initialUrl: string;
+  finalUrl?: string;
+  elapsedMs: number;
+  cookie: {
+    configured: boolean;
+    inserted: boolean;
+    foundInContext: boolean;
+    expiresAt: string | null;
+  };
+  destination: "login" | "checkpoint" | "authwall" | "search" | "other";
+  title?: string;
+  error?: { name: string; message: string };
+  redirects: Array<{ status: number; from: string; to: string | null }>;
+  responses: Array<{ status: number; url: string }>;
+  failedRequests: Array<{ url: string; error: string | null }>;
+  runner: {
+    githubActions: boolean;
+    os: string | null;
+    runId: string | null;
+    runAttempt: string | null;
+  };
+}
+
+function safeUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "(url indisponível)";
+  }
+}
+
+function destinationFor(url: string): NavigationDiagnostic["destination"] {
+  if (/\/(checkpoint|challenge)(\/|$)/i.test(url)) return "checkpoint";
+  if (url.includes("/authwall")) return "authwall";
+  if (url.includes("/login") || url.includes("session_expired")) return "login";
+  if (url.includes("/search/results/content")) return "search";
+  return "other";
+}
+
+async function persistDiagnostic(record: NavigationDiagnostic): Promise<void> {
+  const line = JSON.stringify(record);
+  console.info("[linkedin-diagnostic] " + line);
+  try {
+    await mkdir(dirname(DIAGNOSTICS_PATH), { recursive: true });
+    await appendFile(DIAGNOSTICS_PATH, line + "\n", { encoding: "utf8", mode: 0o600 });
+  } catch (err) {
+    // Diagnostics must never change the scraper's functional result.
+    console.warn("[linkedin-diagnostic] could not persist diagnostic file:", err);
+  }
+}
 
 // Gupy selectors. The card is the list item/article that wraps a job link: the
 // portal uses a class-less <li> with the link (and all card text) inside.
@@ -29,7 +87,7 @@ export function isLoginUrl(url: string): boolean {
 export function classifyGotoError(err: unknown): string | null {
   if (!(err instanceof Error)) return null;
   if (/ERR_TOO_MANY_REDIRECTS/i.test(err.message)) {
-    return "LinkedIn bloqueou o acesso (sessão sinalizada ou rate-limit) — atualize o LI_COOKIE e aguarde antes de tentar de novo";
+    return "Falha de navegação no LinkedIn: ERR_TOO_MANY_REDIRECTS (causa ainda não determinada; consulte os eventos linkedin-diagnostic)";
   }
   return null;
 }
@@ -69,31 +127,123 @@ async function readBodySafely(res: Response): Promise<string> {
 
 export class PlaywrightScraper implements LinkedInScraper {
   async fetchPosts(url: string, cookie: string): Promise<Post[]> {
+    const startedAt = Date.now();
+    const redirects: NavigationDiagnostic["redirects"] = [];
+    const responses: NavigationDiagnostic["responses"] = [];
+    const failedRequests: NavigationDiagnostic["failedRequests"] = [];
     const browser = await chromium.launch({ headless: true });
+    let cookieInserted = false;
+    let cookieFound = false;
+    let cookieExpiresAt: string | null = null;
+    let page: Page | undefined;
+
+    const buildDiagnostic = async (
+      event: NavigationDiagnostic["event"],
+      error?: unknown,
+    ): Promise<NavigationDiagnostic> => {
+      const finalUrl = page?.url() ?? url;
+      const record: NavigationDiagnostic = {
+        timestamp: new Date().toISOString(),
+        event,
+        initialUrl: safeUrl(url),
+        finalUrl: safeUrl(finalUrl),
+        elapsedMs: Date.now() - startedAt,
+        cookie: {
+          configured: cookie.length > 0,
+          inserted: cookieInserted,
+          foundInContext: cookieFound,
+          expiresAt: cookieExpiresAt,
+        },
+        destination: destinationFor(finalUrl),
+        redirects,
+        responses,
+        failedRequests,
+        runner: {
+          githubActions: process.env.GITHUB_ACTIONS === "true",
+          os: process.env.RUNNER_OS ?? null,
+          runId: process.env.GITHUB_RUN_ID ?? null,
+          runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+        },
+      };
+      if (page) record.title = await page.title().catch(() => "(indisponível)");
+      if (error instanceof Error) {
+        record.error = {
+          name: error.name,
+          message: error.message.replace(/https?:\/\/[^\s)]+/g, (match) => safeUrl(match)),
+        };
+      } else if (error !== undefined) {
+        record.error = { name: "UnknownError", message: String(error) };
+      }
+      return record;
+    };
+
     try {
       const context = await browser.newContext();
       await context.addCookies([
         { name: "li_at", value: cookie, domain: COOKIE_DOMAIN, path: "/" },
       ]);
-      const page = await context.newPage();
+      cookieInserted = true;
+      const storedCookies = await context.cookies("https://www.linkedin.com");
+      const storedCookie = storedCookies.find((item) => item.name === "li_at");
+      cookieFound = Boolean(storedCookie);
+      if (storedCookie && storedCookie.expires > 0) {
+        cookieExpiresAt = new Date(storedCookie.expires * 1000).toISOString();
+      }
+      page = await context.newPage();
 
       const bodies: Promise<string>[] = [];
       page.on("response", (res) => {
-        if (!RESPONSE_URL_RE.test(res.url())) return;
-        bodies.push(readBodySafely(res));
+        const responseUrl = res.url();
+        if (responses.length < 100) responses.push({ status: res.status(), url: safeUrl(responseUrl) });
+        if (res.status() >= 300 && res.status() < 400) {
+          const location = res.headers().location;
+          if (redirects.length < 50) {
+            let target: string | null = null;
+            try {
+              target = location ? safeUrl(new URL(location, responseUrl).toString()) : null;
+            } catch {
+              target = "(location inválido)";
+            }
+            redirects.push({ status: res.status(), from: safeUrl(responseUrl), to: target });
+          }
+        }
+        if (RESPONSE_URL_RE.test(responseUrl)) bodies.push(readBodySafely(res));
       });
+      page.on("requestfailed", (request) => {
+        if (failedRequests.length < 50) {
+          failedRequests.push({
+            url: safeUrl(request.url()),
+            error: request.failure()?.errorText ?? null,
+          });
+        }
+      });
+
+      console.info("[linkedin-diagnostic] " + JSON.stringify({
+        event: "navigation_started",
+        timestamp: new Date(startedAt).toISOString(),
+        initialUrl: safeUrl(url),
+        cookieConfigured: cookie.length > 0,
+        cookieInserted,
+        cookieFoundInContext: cookieFound,
+      }));
 
       try {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       } catch (err) {
+        const diagnostic = await buildDiagnostic("navigation_failed", err);
+        await persistDiagnostic(diagnostic);
         const motivo = classifyGotoError(err);
-        if (motivo) throw new Error(motivo);
+        if (motivo) throw new Error(motivo, { cause: err });
         throw err;
       }
+
       if (isLoginUrl(page.url())) {
-        throw new Error("cookie de sessão do LinkedIn expirado ou inválido");
+        const err = new Error("cookie de sessão do LinkedIn expirado ou inválido");
+        await persistDiagnostic(await buildDiagnostic("navigation_failed", err));
+        throw err;
       }
 
+      await persistDiagnostic(await buildDiagnostic("navigation_succeeded"));
       const cards = await this.extractPosts(page);
 
       const activityIds: string[] = [];
@@ -139,7 +289,7 @@ export class PlaywrightScraper implements LinkedInScraper {
       .innerText()
       .catch(() => "");
     return [
-      `  url final: ${page.url()}`,
+      `  url final: ${safeUrl(page.url())}`,
       `  título: ${(await page.title()) || "(vazio)"}`,
       `  início do corpo: ${bodyText.slice(0, 500) || "(vazio)"}`,
     ].join("\n");
