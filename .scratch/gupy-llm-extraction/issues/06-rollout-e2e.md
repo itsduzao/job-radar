@@ -4,7 +4,7 @@
 
 **Blocked by:** 04-adr-docs, 05-hardening-observability
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Modo shadow (`GUPY_LLM_SHADOW=true`):
   - Roda extração LLM **e** seletores legados

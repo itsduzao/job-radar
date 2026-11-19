@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `src/prompts/gupy-extraction-v1.txt` — prompt system + template user (conforme spec)
 - [ ] Acessar `https://portal.gupy.io/job-search?term=estagio` no browser, salvar HTML completo da página em `test/fixtures/gupy/search-page-real.html`

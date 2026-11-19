@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately; runs parallel with 00)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `src/config.ts`:
   - `GUPY_USE_LLM_EXTRACTION` (default: `false`)

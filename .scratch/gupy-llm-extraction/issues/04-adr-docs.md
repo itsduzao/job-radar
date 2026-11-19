@@ -4,7 +4,7 @@
 
 **Blocked by:** 03-config-flags (decisões finalizadas)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `docs/adr/0004-gupy-llm-html-extraction.md`:
   - Contexto: seletores frágeis, manutenção contínua

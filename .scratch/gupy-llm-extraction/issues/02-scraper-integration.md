@@ -4,7 +4,7 @@
 
 **Blocked by:** 01-gemini-extractor, 03-config-flags (both edit `src/main.ts`; serialized to avoid merge conflicts)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `src/playwright-scraper.ts` (modificar `GupyPlaywrightScraper`):
   - Constructor recebe `geminiExtractor?: GeminiExtractor` + `useLLM: boolean`

@@ -4,7 +4,7 @@
 
 **Blocked by:** 01-gemini-extractor, 02-scraper-integration
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `src/gemini-extractor.ts` (endurecer):
   - Validação estrita por campo: `id` deve casar `/^\d+$/`; `url` deve conter `/job/{id}`; `publishedDate` deve parsear (`Date.parse` !== NaN)

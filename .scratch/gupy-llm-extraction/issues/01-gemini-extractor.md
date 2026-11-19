@@ -4,7 +4,7 @@
 
 **Blocked by:** 00-prompt-fixture (prompt + fixtures)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `src/gemini-extractor.ts`:
   - `interface ExtractedJob` (conforme spec)
