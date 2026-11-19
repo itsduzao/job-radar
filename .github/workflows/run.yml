@@ -27,6 +27,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Gupy + extração via Gemini, com teto econômico: 1 página/query
+          # (~US$ 0,30/run). Suba GUPY_MAX_PAGES com cautela.
+          ENABLE_GUPY_SOURCE: "true"
+          GUPY_USE_LLM_EXTRACTION: "true"
+          GUPY_MAX_PAGES: "1"
+          GUPY_LLM_SHADOW: "false"
       - name: Upload LinkedIn diagnostics
         if: always()
         uses: actions/upload-artifact@v6
