@@ -449,8 +449,18 @@ export class GupyPlaywrightScraper implements GupyScraper {
 
     try {
       const jobs = await this.runLLMExtraction(cardHtmls, url, pageIndex, extractor);
+      const hrefById = new Map(
+        cardHtmls.flatMap((html) => {
+          const href = /(?:href=["'])(https?:\/\/[^"' ]+)["']/i.exec(html)?.[1];
+          if (!href) return [];
+          const id = this.legacyJobIdFromHref(href);
+          return /^\d+$/.test(id) ? [[id, href] as [string, string]] : [];
+        }),
+      );
       return {
-        posts: jobs.map((job) => this.mapExtractedJobToPost(job)),
+        posts: jobs.map((job) =>
+          this.mapExtractedJobToPost(job, hrefById.get(job.id)),
+        ),
         jobsOut: jobs.length,
       };
     } catch (err) {
@@ -744,7 +754,7 @@ export class GupyPlaywrightScraper implements GupyScraper {
     };
   }
 
-  private mapExtractedJobToPost(job: ExtractedJob): Post {
+  private mapExtractedJobToPost(job: ExtractedJob, cardUrl?: string): Post {
     const workplaceTypeMap: Record<ExtractedJob["workplaceType"], string> = {
       remote: "remoto",
       onSite: "presencial",
@@ -771,8 +781,26 @@ export class GupyPlaywrightScraper implements GupyScraper {
 
     return {
       id: `gupy:${job.id}`,
-      url: `https://portal.gupy.io/job/${job.id}`,
+      url: this.canonicalGupyJobUrl(job.id, cardUrl, job.url),
       texto,
     };
+  }
+
+  private canonicalGupyJobUrl(jobId: string, ...candidates: Array<string | undefined>): string {
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      try {
+        const parsed = new URL(candidate);
+        if (
+          parsed.hostname !== "portal.gupy.io" &&
+          parsed.hostname.endsWith(".gupy.io")
+        ) {
+          return `${parsed.protocol}//${parsed.hostname}/jobs/${jobId}`;
+        }
+      } catch {
+        // Relative or malformed URLs do not provide a company subdomain.
+      }
+    }
+    return `https://portal.gupy.io/job/${jobId}`;
   }
 }

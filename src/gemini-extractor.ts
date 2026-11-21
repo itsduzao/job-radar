@@ -46,7 +46,7 @@ export const DEFAULT_GEMINI_PRICING: GeminiPricing = {
 const WORKPLACE_TYPES = ["remote", "onSite", "hybrid", "unknown"] as const;
 const JOB_TYPES = ["internship", "trainee", "effective", "talent_pool", "unknown"] as const;
 
-const PROMPT_URL = new URL("./prompts/gupy-extraction-v1.txt", import.meta.url);
+const PROMPT_URL = new URL("./prompts/gupy-extraction-v2.txt", import.meta.url);
 
 const noopLogger: Logger = {
   info: () => {},
@@ -179,6 +179,25 @@ function parseJobsJson(text: string): unknown {
   }
 }
 
+function normalizeGupyJobUrl(rawUrl: string, jobId: string): string {
+  if (!rawUrl) return `https://portal.gupy.io/job/${jobId}`;
+
+  try {
+    const parsed = new URL(rawUrl);
+    if (
+      parsed.hostname !== "portal.gupy.io" &&
+      parsed.hostname.endsWith(".gupy.io") &&
+      /^\/(?:job|jobs)\//.test(parsed.pathname)
+    ) {
+      return `${parsed.protocol}//${parsed.hostname}/jobs/${jobId}`;
+    }
+  } catch {
+    // Keep the portal fallback for malformed model output.
+  }
+
+  return `https://portal.gupy.io/job/${jobId}`;
+}
+
 /**
  * Normalizes one raw model entry. Returns a job, or a drop reason when the
  * entry cannot be used for dedupe/digest (missing/invalid id or title).
@@ -212,7 +231,7 @@ function normalizeJob(value: unknown, index: number): ExtractedJob | DroppedJob 
     typeof value.jobType === "string" && isJobType(value.jobType) ? value.jobType : "unknown";
 
   const rawUrl = typeof value.url === "string" ? value.url : "";
-  const url = rawUrl.includes(`/job/${id}`) ? rawUrl : `https://portal.gupy.io/job/${id}`;
+  const url = normalizeGupyJobUrl(rawUrl, id);
 
   const rawPublishedDate = typeof value.publishedDate === "string" ? value.publishedDate : "";
   const publishedDate = Number.isNaN(Date.parse(rawPublishedDate)) ? "unknown" : rawPublishedDate;
