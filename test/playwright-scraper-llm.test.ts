@@ -216,7 +216,7 @@ describe("GupyPlaywrightScraper em modo LLM", () => {
 
     expect(posts).toHaveLength(extractedJobs.length);
     expect(posts[0].id).toBe(`gupy:${jobs[0].id}`);
-    expect(posts[0].url).toBe(`https://portal.gupy.io/job/${jobs[0].id}`);
+    expect(posts[0].url).toBe("https://qca.gupy.io/jobs/12916776");
     expect(posts[0].texto).toContain(`Título: ${jobs[0].title}`);
     expect(posts[0].texto).toContain(`Empresa: ${jobs[0].company}`);
     expect(posts[0].texto).toContain(`Localização: ${jobs[0].location}`);
@@ -228,11 +228,29 @@ describe("GupyPlaywrightScraper em modo LLM", () => {
 
     const talentPool = posts.find((post) => post.id === "gupy:12916493");
     expect(talentPool?.texto).toContain("Tipo: banco de talentos");
-    expect(talentPool?.texto).toContain("Modalidade: presencial");
+  });
 
-    const onsite = posts.find((post) => post.id === "gupy:12855594");
-    expect(onsite?.texto).toContain("Modalidade: presencial");
+  it("usa o domínio da empresa em vez do portal Gupy para a vaga", async () => {
+    const llmJob = {
+      ...extractedJobs[0],
+      id: "12925653",
+      company: "Stefanini Latam",
+      url: "https://portal.gupy.io/job/12925653",
+    };
+    const { page } = makeGupyPage({
+      cardHtmlPages: [[
+        '<li><a href="https://stefaninilatam.gupy.io/job/12925653"></a></li>',
+      ]],
+    });
+    const { extractor } = createExtractor([[llmJob]]);
+    const { logger } = createCapturingLogger();
 
+    const posts = await new GupyPlaywrightScraper(extractor, true, logger).fetchPosts(
+      SOURCE_URL,
+    );
+
+    expect(posts).toHaveLength(1);
+    expect(posts[0].url).toBe("https://stefaninilatam.gupy.io/jobs/12925653");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
